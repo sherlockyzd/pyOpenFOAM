@@ -90,7 +90,7 @@ class Polymesh():
 
         #maybe these should go in a function?
         self.numberOfBFaces=self.numberOfFaces-self.numberOfInteriorFaces
-        self.numberOfElements = max(self.neighbours)+1 #because of zero indexing in Python
+        self.numberOfElements = np.max(self.neighbours)+1 #because of zero indexing in Python
         self.numberOfBElements=self.numberOfFaces-self.numberOfInteriorFaces #seems strange that subtracting faces gives elements ...
 
         self.cfdReadBoundaryFile()  
@@ -110,19 +110,19 @@ class Polymesh():
         self.cfdGetFaceCentroidsSubArrayForBoundaryPatch()
         
         ## (list) 1D, indices refer to an interior face, list value is the face's owner
-        self.interiorFaceOwners = self.owners[0:self.numberOfInteriorFaces]
+        self.interiorFaceOwners = self.owners[:self.numberOfInteriorFaces]
 
         ## (list) 1D, indices refer to an interior face, list value is the face's neighbor cell
-        self.interiorFaceNeighbours = self.neighbours[0:self.numberOfInteriorFaces]
+        self.interiorFaceNeighbours = self.neighbours[:self.numberOfInteriorFaces]
 
         ## (list) 1D, face weighting factors. Values near 0.5 mean the face's centroid is approximately halfway between the center of the owner and neighbour cell centers, values less than 0.5 mean the face centroid is closer to the owner and those greater than 0.5 are closer to the neighbour cell).
-        self.interiorFaceWeights = self.faceWeights[0:self.numberOfInteriorFaces]
+        self.interiorFaceWeights = self.faceWeights[:self.numberOfInteriorFaces]
 
         ## (array) 2D, normal vectors (Sf) of the interior faces (indices refer to face index)
-        self.interiorFaceSf = self.faceSf[0:self.numberOfInteriorFaces]
+        self.interiorFaceSf = self.faceSf[:self.numberOfInteriorFaces]
         
         ## (array) 2D, CF vectors of the interior faces (indices refer to face index)
-        self.interiorFaceCF = self.faceCF[0:self.numberOfInteriorFaces]
+        self.interiorFaceCF = self.faceCF[:self.numberOfInteriorFaces]
         
         ## (list) 1D, indices refer to an boundary face, list value refers to the face's owner
         self.owners_b = self.owners[self.numberOfInteriorFaces:self.numberOfFaces]
@@ -182,9 +182,10 @@ class Polymesh():
         with open(self.pointsFile,"r") as fpid:
             
             print('Reading points file ...')
-            points_x=[]
-            points_y=[]
-            points_z=[]
+            points = []
+            # points_x=[]
+            # points_y=[]
+            # points_z=[]
             
             for linecount, tline in enumerate(fpid):
                 
@@ -211,12 +212,16 @@ class Polymesh():
                 tline=tline.replace(")","")
                 tline=tline.split()
                 
-                points_x.append(float(tline[0]))
-                points_y.append(float(tline[1]))
-                points_z.append(float(tline[2]))
+                points.append(list(map(float, tline)))
+                # points_x.append(float(tline[0]))
+                # points_y.append(float(tline[1]))
+                # points_z.append(float(tline[2]))
         
         ## (array) with the mesh point coordinates 
-        self.nodeCentroids = np.array((points_x, points_y, points_z), dtype=float).transpose()
+        # self.nodeCentroids = np.array((points_x, points_y, points_z), dtype=float).transpose()
+        self.nodeCentroids = np.array(points, dtype=float)
+
+
 
 
     def cfdReadFacesFile(self):
@@ -273,8 +278,8 @@ class Polymesh():
 
         with open(self.facesFile,"r") as fpid:
             print('Reading faces file ...')
-            self.faceNodes=[]
-            
+            # self.faceNodes=[]
+            faces = []
             for linecount, tline in enumerate(fpid):
                 
                 if not io.cfdSkipEmptyLines(tline):
@@ -306,8 +311,12 @@ class Polymesh():
                         #faceNodesi.append(int(node))
                     else:
                         faceNodesi.append(int(node))
-                
-                self.faceNodes.append(faceNodesi)
+                faces.append(faceNodesi)
+                # self.faceNodes.append(faceNodesi)
+
+        max_length = max(len(face) for face in faces)
+        self.faceNodes = np.array([face + [None] * (max_length - len(face)) for face in faces], dtype=object)
+            
                 
         # ## (array) with the nodes for each face
         # max_length = max(len(item) for item in self.faceNodes)  # 找到最长序列的长度
@@ -365,7 +374,7 @@ class Polymesh():
             print('Reading owner file ...')
 
             ## (list) 1D, indices refer to faces, list value is the face's owner cell
-            self.owners=[]
+            owners=[]
             start=False
             
             for linecount, tline in enumerate(fpid):
@@ -393,7 +402,9 @@ class Polymesh():
                     if ")" in tline:
                         break
                     else:
-                        self.owners.append(int(tline.split()[0]))
+                        owners.append(int(tline.split()[0]))
+
+        self.owners= np.array(owners)
 
     def cfdReadNeighbourFile(self):
         """ Reads the polyMesh/constant/neighbour file and returns a list 
@@ -443,7 +454,7 @@ class Polymesh():
             print('Reading neighbour file ...')
 
             ## (list) 1D, indices refer to faces, list value is the face's neighbour cell
-            self.neighbours=[]
+            neighbours=[]
             start=False
             
             for linecount, tline in enumerate(fpid):
@@ -471,8 +482,9 @@ class Polymesh():
                     if ")" in tline:
                         break
                     else:
-                        self.neighbours.append(int(tline.split()[0]))
-                       
+                        neighbours.append(int(tline.split()[0]))
+
+        self.neighbours = np.array(neighbours)               
     
     def cfdReadBoundaryFile(self):
         """Reads the polyMesh/boundary file and reads its contents in a dictionary (self.cfdBoundary)
@@ -545,7 +557,7 @@ class Polymesh():
                         '''
                         if tline.strip().isdigit(): 是一个Python条件语句，用于检查字符串tline在去除空白字符后是否只包含数字。下面是对这个条件语句的详细解释：isdigit()：这也是Python字符串的一个方法，用于判断字符串中的所有字符是否都是数字。如果字符串至少有一个字符，并且所有字符都是数字，则返回True；否则返回False。
                         '''
-                        self.numberOfBoundaryPatches = tline.split()[0]
+                        self.numberOfBoundaryPatches = int(tline.split()[0])
                         continue
                    
                     boundaryName=tline.split()[0]
@@ -563,7 +575,7 @@ class Polymesh():
                     count=count+1
 
                     ## index for boundary face, used for reference
-                    self.cfdBoundaryPatchesArray[boundaryName]['index']= count
+                    self.cfdBoundaryPatchesArray[boundaryName]['index']= int(count)
     
                     
     def cfdCheckIfCavity(self):
@@ -624,10 +636,16 @@ class Polymesh():
 
         """
         ## (list of lists) List where each index represents an element in the domain. Each index has an associated list which contains the elements for which is shares a face (i.e. the neighouring elements). Do not confuse a faces 'neighbour cell', which refers to a face's neighbour element, with the neighbouring elements of a cell. 
-        self.elementNeighbours = [[] for i in range(0,self.numberOfElements)]
+        # self.elementNeighbours = [[] for _ in range(0,self.numberOfElements)]
+        self.elementNeighbours = np.empty(self.numberOfElements, dtype=object)
 
         ## (list of lists) list of face indices forming each element
-        self.elementFaces = [[] for i in range(0,self.numberOfElements)]
+        # self.elementFaces = [[] for _ in range(0,self.numberOfElements)]
+        self.elementFaces = np.empty(self.numberOfElements, dtype=object)
+
+        for i in range(self.numberOfElements):
+            self.elementNeighbours[i] = []
+            self.elementFaces[i] = []
         
         #populates self.elementNeighbours
         for iFace in range(self.numberOfInteriorFaces):
@@ -648,14 +666,17 @@ class Polymesh():
             self.elementFaces[own].append(iFace)
         
         ## List of lists containing points forming each element
-        self.elementNodes = [[] for i in range(0,self.numberOfElements)]
+        # self.elementNodes = [[] for i in range(0,self.numberOfElements)]
+        self.elementNodes = np.empty(self.numberOfElements, dtype=object)
+        for i in range(self.numberOfElements):
+            self.elementNodes[i] = []
         
         for iElement in range(self.numberOfElements):
-            
             for faceIndex in self.elementFaces[iElement]:
-                self.elementNodes[iElement].append(self.faceNodes[faceIndex])
-            
-            self.elementNodes[iElement] = list(set([item for sublist in self.elementNodes[iElement] for item in sublist]))
+                self.elementNodes[iElement].extend(self.faceNodes[faceIndex])
+                # self.elementNodes[iElement].append(self.faceNodes[faceIndex])
+            self.elementNodes[iElement] = list(set(self.elementNodes[iElement]))
+            # self.elementNodes[iElement] = list(set([item for sublist in self.elementNodes[iElement] for item in sublist]))
             '''
             这行代码是用于处理 `self.elementNodes` 列表中的特定元素 `iElement` 的。它的作用是将一个由多个子列表组成的嵌套列表（可能包含重复项）转换为一个没有重复项的扁平列表（flat list）。下面是对这个操作的详细解释：
 
@@ -690,28 +711,28 @@ class Polymesh():
             '''
         
         ## Upper coefficient indices (owners)
-        self.upperAnbCoeffIndex=[[] for i in range(0,self.numberOfInteriorFaces)]
-    
+        # self.upperAnbCoeffIndex=[[] for i in range(0,self.numberOfInteriorFaces)]
+        self.upperAnbCoeffIndex = np.empty(self.numberOfInteriorFaces, dtype=object)
         ## Lower coefficient indices (owners)
-        self.lowerAnbCoeffIndex=[[] for i in range(0,self.numberOfInteriorFaces)]
-        
+        # self.lowerAnbCoeffIndex=[[] for i in range(0,self.numberOfInteriorFaces)]
+        self.lowerAnbCoeffIndex = np.empty(self.numberOfInteriorFaces, dtype=object)
+        for i in range(self.numberOfInteriorFaces):
+            self.upperAnbCoeffIndex[i] = []
+            self.lowerAnbCoeffIndex[i] = []
+            
         for iElement in range(self.numberOfElements):
             ## Element number from 1 to numberOfElements + 1
             iNb=0
             for faceIndex in self.elementFaces[iElement]:
-                
                 #skip if it is a boundary face
                 if faceIndex > self.numberOfInteriorFaces-1:
                     continue
-                
                 own = self.owners[faceIndex]
                 nei = self.neighbours[faceIndex]
-                
                 if iElement == own:
                     self.upperAnbCoeffIndex[faceIndex] = iNb
                 elif iElement == nei:
                     self.lowerAnbCoeffIndex[faceIndex] = iNb
-                    
                 iNb = iNb +1
 
 
@@ -834,23 +855,37 @@ class Polymesh():
         """
 
         ## Linear weight of distance from cell center to face
-        self.faceWeights= [[0] for i in range(self.numberOfFaces)]
-        self.faceCF= [[0,0,0] for i in range(self.numberOfFaces)]
-        self.faceCFn= [[0,0,0] for i in range(self.numberOfFaces)]
-        self.faceCf= [[0,0,0] for i in range(self.numberOfFaces)]
-        self.faceFf= [[0,0,0] for i in range(self.numberOfFaces)]
-        self.faceDist= [[0] for i in range(self.numberOfFaces)]
-        self.wallDistLimited= [[] for i in range(self.numberOfFaces)]
-        self.geoDiff_f= [[0] for i in range(self.numberOfFaces)]
+        # self.faceWeights= [[0] for i in range(self.numberOfFaces)]
+        # self.faceCF= [[0,0,0] for i in range(self.numberOfFaces)]
+        # self.faceCFn= [[0,0,0] for i in range(self.numberOfFaces)]
+        # self.faceCf= [[0,0,0] for i in range(self.numberOfFaces)]
+        # self.faceFf= [[0,0,0] for i in range(self.numberOfFaces)]
+        # self.faceDist= [[0] for i in range(self.numberOfFaces)]
+        # self.wallDistLimited= [[] for i in range(self.numberOfFaces)]
+        # self.geoDiff_f= [[0] for i in range(self.numberOfFaces)]
+        # self.faceEf= [[0,0,0] for i in range(self.numberOfInteriorFaces)]
+        # self.faceTf= [[0,0,0] for i in range(self.numberOfInteriorFaces)]
+        # # self.wallDist= [[] for i in range(self.numberOfFaces)]   
+        # self.elementCentroids= [[] for i in range(self.numberOfElements)]
+        # self.elementVolumes= [[] for i in range(self.numberOfElements)]
+        self.faceWeights = np.zeros(self.numberOfFaces,dtype=float)
+        self.faceCF = np.zeros((self.numberOfFaces, 3),dtype=float)
+        self.faceCFn = np.zeros((self.numberOfFaces, 3),dtype=float)
+        self.faceCf = np.zeros((self.numberOfFaces, 3),dtype=float)
+        self.faceFf = np.zeros((self.numberOfFaces, 3),dtype=float)
+        self.faceDist = np.zeros(self.numberOfFaces,dtype=float)
+        self.wallDistLimited = np.zeros(self.numberOfFaces,dtype=float)
+        self.geoDiff_f = np.zeros(self.numberOfFaces,dtype=float)
 
-        self.faceEf= [[0,0,0] for i in range(self.numberOfInteriorFaces)]
-        self.faceTf= [[0,0,0] for i in range(self.numberOfInteriorFaces)]
-        
-        # self.wallDist= [[] for i in range(self.numberOfFaces)]   
-        self.elementCentroids= [[] for i in range(self.numberOfElements)]
-        self.elementVolumes= [[] for i in range(self.numberOfElements)]
-        
+        self.faceEf = np.zeros((self.numberOfInteriorFaces, 3),dtype=float)
+        self.faceTf = np.zeros((self.numberOfInteriorFaces, 3),dtype=float)
 
+        self.elementCentroids = np.zeros((self.numberOfElements, 3),dtype=float)
+        self.elementVolumes = np.zeros(self.numberOfElements,dtype=float)
+
+        self.faceCentroids = np.zeros((self.numberOfFaces, 3),dtype=float)  # 假设每个面心是一个3D向量
+        self.faceSf = np.zeros((self.numberOfFaces, 3),dtype=float)         # 假设每个面法向量是一个3D向量
+        self.faceAreas = np.zeros(self.numberOfFaces,dtype=float)           # 假设每个面面积是一个标量    
         
         #find cell with largest number of points
         # maxPoints=len(max(self.faceNodes, key=len))
@@ -962,24 +997,27 @@ class Polymesh():
         """
         Pure python version - causes slowness due to iterative np.cross()
         """
-        self.faceCentroids= [[] for i in range(self.numberOfFaces)]
-        self.faceSf= [[] for i in range(self.numberOfFaces)]
-        self.faceAreas= [[] for i in range(self.numberOfFaces)]
+        # self.faceCentroids= [[] for i in range(self.numberOfFaces)]
+        # self.faceSf= [[] for i in range(self.numberOfFaces)]
+        # self.faceAreas= [[] for i in range(self.numberOfFaces)]
+        # self.faceCentroids = np.zeros((self.numberOfFaces, 3))  # 假设每个面心是一个3D向量
+        # self.faceSf = np.zeros((self.numberOfFaces, 3))         # 假设每个面法向量是一个3D向量
+        # self.faceAreas = np.zeros(self.numberOfFaces)           # 假设每个面面积是一个标量
         
 
         for iFace in range(self.numberOfFaces):
             theNodeIndices = self.faceNodes[iFace]
             theNumberOfFaceNodes = len(theNodeIndices)
             #compute a rough centre of the face
-            local_centre = [0,0,0]
+            local_centre = np.zeros(3)
             
             for iNode in theNodeIndices:
                 local_centre = local_centre + self.nodeCentroids[int(iNode)]
         
             local_centre = local_centre/theNumberOfFaceNodes
-            centroid = [0, 0, 0]
-            Sf = [0,0,0]
-            area = 0
+            centroid = np.zeros(3)
+            Sf = np.zeros(3)
+            area = 0.0
             #finds area of virtual triangles and adds them to the find to find face area
             #and direction (Sf)
             for iTriangle in range(theNumberOfFaceNodes):
@@ -1000,10 +1038,10 @@ class Polymesh():
                 # local_Sf=np.array([x,y,z])
                 local_Sf=0.5*np.cross(left, right)#右手系，x 叉乘 y=z，y轴朝上，复制的面在上层，见ParaView，法向量向外，由owner指向neighbour。
                 local_area = np.linalg.norm(local_Sf)
-                centroid = centroid + local_area*local_centroid
-                Sf = Sf + local_Sf
-                area = area + local_area
-            centroid = centroid/area
+                centroid +=  local_area*local_centroid
+                Sf +=  local_Sf
+                area +=  local_area
+            centroid /= area
             self.faceCentroids[iFace]=centroid
             self.faceSf[iFace]=Sf
             self.faceAreas[iFace]=area
@@ -1019,16 +1057,16 @@ class Polymesh():
             theElementFaces = self.elementFaces[iElement]
             
             #compute a rough centre of the element
-            local_centre = [0,0,0]
+            local_centre = np.zeros(3)
             
             for iFace in range(len(theElementFaces)):
                 faceIndex = theElementFaces[iFace]
-                local_centre = local_centre + self.faceCentroids[faceIndex]
+                local_centre +=  self.faceCentroids[faceIndex]
             
-            local_centre = local_centre/len(theElementFaces)
+            local_centre /= len(theElementFaces)
             
-            localVolumeCentroidSum = [0,0,0]
-            localVolumeSum = 0
+            localVolumeCentroidSum = np.zeros(3)
+            localVolumeSum = 0.0
             
             for iFace in range(len(theElementFaces)):
                 faceIndex = theElementFaces[iFace]
@@ -1045,9 +1083,9 @@ class Polymesh():
                 
                 localCentroid = 0.75*self.faceCentroids[faceIndex]+0.25*local_centre
                 
-                localVolumeCentroidSum = localVolumeCentroidSum + localCentroid*localVolume
+                localVolumeCentroidSum +=  localCentroid*localVolume
                 
-                localVolumeSum = localVolumeSum + localVolume
+                localVolumeSum +=  localVolume
                 
             self.elementCentroids[iElement]=localVolumeCentroidSum/localVolumeSum
             self.elementVolumes[iElement]=localVolumeSum
@@ -1138,7 +1176,8 @@ class Polymesh():
             startBElement=self.numberOfElements+self.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']-self.numberOfInteriorFaces
             endBElement=startBElement+self.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces']
         
-            self.cfdBoundaryPatchesArray[iBPatch]['iBElements']=list(range(int(startBElement),int(endBElement)))
+            self.cfdBoundaryPatchesArray[iBPatch]['iBElements']=np.arange(int(startBElement), int(endBElement))
+            # list(range(int(startBElement),int(endBElement)))
 
     def cfdGetFaceCentroidsSubArrayForBoundaryPatch(self):
         """
@@ -1177,7 +1216,8 @@ class Polymesh():
             # startBFace=self.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']
             # endBFace=startBFace+self.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces']
             iBFaces=self.cfdBoundaryPatchesArray[iBPatch]['iBFaces'] 
-            self.cfdBoundaryPatchesArray[iBPatch]['faceCentroids']=[self.faceCentroids[i] for i in iBFaces]
+            self.cfdBoundaryPatchesArray[iBPatch]['faceCentroids']=self.faceCentroids[iBFaces]
+            # [self.faceCentroids[i] for i in iBFaces]
 
     def cfdGetOwnersSubArrayForBoundaryPatch(self):
         """
@@ -1220,7 +1260,8 @@ class Polymesh():
         
             iBFaces=self.cfdBoundaryPatchesArray[iBPatch]['iBFaces']   
             
-            self.cfdBoundaryPatchesArray[iBPatch]['owners_b']=[self.owners[i] for i in iBFaces]
+            self.cfdBoundaryPatchesArray[iBPatch]['owners_b']=self.owners[iBFaces]
+            # [self.owners[i] for i in iBFaces]
 
     def cfdGetFaceSfSubArrayForBoundaryPatch(self):
         """
@@ -1264,17 +1305,15 @@ class Polymesh():
             
             endBFace=startBFace+self.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces']
         
-            iBFaces=np.asarray(list(range(int(startBFace),int(endBFace))))
+            iBFaces=np.arange(int(startBFace),int(endBFace))
 
-            self.cfdBoundaryPatchesArray[iBPatch]['iBFaces']=iBFaces
+            self.cfdBoundaryPatchesArray[iBPatch]['iBFaces']=iBFaces 
             
-            # self.cfdBoundaryPatchesArray[iBPatch]['facesSf']=[self.faceSf[i] for i in iBFaces]       
-            
-            self.cfdBoundaryPatchesArray[iBPatch]['facesSf']=np.asarray([self.faceSf[i] for i in iBFaces])
+            self.cfdBoundaryPatchesArray[iBPatch]['facesSf']=self.faceSf[iBFaces]# np.asarray([self.faceSf[i] for i in iBFaces])
 
-            self.cfdBoundaryPatchesArray[iBPatch]['facen']=np.asarray([self.facen[i] for i in iBFaces])
+            self.cfdBoundaryPatchesArray[iBPatch]['facen']=self.facen[iBFaces] #np.asarray([self.facen[i] for i in iBFaces])
 
-            self.cfdBoundaryPatchesArray[iBPatch]['normSb']=np.asarray([self.faceAreas[i] for i in iBFaces])
+            self.cfdBoundaryPatchesArray[iBPatch]['normSb']=self.faceAreas[iBFaces] #np.asarray([self.faceAreas[i] for i in iBFaces])
 
 
 #    def cfdGetOwnersSubArrayForInteriorFaces(self):

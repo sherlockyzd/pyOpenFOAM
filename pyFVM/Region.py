@@ -56,7 +56,8 @@ class Region():
                     self.ScalarTransportIteration(iTerm)
             plt.cfdPlotRes(self.caseDirectoryPath,self.model.equations)
             if self.time.cfdDoWriteTime():            
-                io.cfdWriteOpenFoamParaViewData(self)
+                # io.cfdWriteOpenFoamParaViewData(self)
+                pass
 
     def MomentumIteration(self):
         numVector=self.fluid['U'].iComponent

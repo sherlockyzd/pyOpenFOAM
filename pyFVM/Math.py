@@ -66,13 +66,15 @@ def cfdUnit(vector):
     ```
     因为第一个向量的模是4，第二个向量的模是3，分别除以它们的模后，我们得到了单位向量。
     """
+    if not isinstance(vector, np.ndarray):
+        raise TypeError("输入参数必须是一个 NumPy 数组")
     # 计算范数，并避免除以0
     epsilon = 1e-10  # 设置一个小的数，避免除以0
     norms = np.linalg.norm(vector, axis=1)
     norms[norms == 0] = epsilon  # 将0范数替换为epsilon
 
     # 进行除法操作，得到单位向量
-    return vector / norms[:, None]
+    return vector / norms[:, np.newaxis]
     # return vector/np.linalg.norm(vector,axis=1)[:,None]
 
 def cfdScalarList(*args):
