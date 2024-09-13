@@ -1,12 +1,12 @@
 
 # pyOpenFOAM: Python Finite Volume Method Solver Like OpenFoam
 
-pyOpenFOAM 是一个基于有限体积方法（FVM）的计算流体动力学（CFD）库，用于模拟流体流动和热传递。该库提供了一套完整的工具来处理网格拓扑关系、方程求解、边界条件设置和结果可视化。采用OpenFOAM网格格式文件，主要离散格式和求解也参考了书籍《The Finite Volume Method in Computational Fluid Dynamics》。
+pyOpenFOAM 是一个基于有限体积方法（FVM）的计算流体动力学（CFD）库，用于模拟流体流动和热传递。该库提供了一套完整的工具来处理网格拓扑关系、方程求解、边界条件设置和结果可视化。该求解器库采用OpenFOAM网格格式文件，主要离散格式和求解也参考了书籍《The Finite Volume Method in Computational Fluid Dynamics》。pyOpenFOAM目前完全基于Python平台开发，尽管也用到了Numpy库，但计算性能依然受限，亟待大家的共同开发和加入来提高程序的性能，但该代码库依然具有教育意义，对于从事CFD行业理解CFD数值离散以及从事科研学术依然具有重要意义。
 
 ## 主要特性
 
 - 支持多维网格和多种边界条件
-- 多种求解器选项，包括AMG、PCG、ILU和SOR
+- 多种求解器选项，包括AMG、PCG、ILU和SOR（待验证准确性）
 - 动态网格和瞬态模拟支持
 - 丰富的插值和残差计算工具
 - 支持自定义方程和系数设置

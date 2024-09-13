@@ -62,34 +62,38 @@ class Coefficients():
         self.theCConn = Region.mesh.elementNeighbours
         
         ## array containing the number of neighbouring elements for each element in the domain
-        self.theCSize = np.zeros((len(self.theCConn)))
+        # self.theCSize = np.zeros((len(self.theCConn)))
         
-        for iElement,value in enumerate(self.theCConn):
-            self.theCSize[iElement]=len(self.theCConn[iElement])
+        # for iElement,value in enumerate(self.theCConn):
+        #     self.theCSize[iElement]=len(self.theCConn[iElement])
+             # 每个元素的邻居数量
+        self.theCSize = np.array([int(len(neighbours)) for neighbours in self.theCConn])  # 强制转换为整数
                
-        theNumberOfElements=len(self.theCConn)
+        theNumberOfElements=int(len(self.theCConn))
 
         self.NumberOfElements=theNumberOfElements
         
         ## array of cell-centered contribution to the flux term. These are constants and constant diffusion coefficients and therefore act as 'coefficients' in the algebraic equations. See p. 229 Moukalled.
-        self.ac=np.zeros((theNumberOfElements))
+        self.ac=np.zeros((theNumberOfElements),dtype=float)
         
         ## see ac, however this is for the previous timestep? Check this later when you know more. 
-        self.ac_old=np.zeros((theNumberOfElements))
+        self.ac_old=np.zeros((theNumberOfElements),dtype=float)
         
         ## array of the boundary condition contributions to the flux term.
-        self.bc=np.zeros((theNumberOfElements))
+        self.bc=np.zeros((theNumberOfElements),dtype=float)
         
-        self.anb=[]
-        
+        # self.anb=[]
+         # 使用NumPy对象数组，允许每个元素的邻居数不一样
+        self.anb = np.empty(theNumberOfElements, dtype=object)
+
         for iElement in range(theNumberOfElements):
-            
-            #easiest way to make a list of zeros of defined length ...
-            listofzeros = [0]*int(self.theCSize[iElement])
-            self.anb.append(listofzeros) 
+            # #easiest way to make a list of zeros of defined length ...
+            # listofzeros = [0]*int(self.theCSize[iElement])
+            # self.anb.append(listofzeros) 
+            self.anb[iElement] = np.zeros(int(self.theCSize[iElement]),dtype=float)
         # self.dc=np.zeros((theNumberOfElements))
         # self.rc=np.zeros((theNumberOfElements))
-        self.dphi=np.zeros((theNumberOfElements))
+        self.dphi=np.zeros((theNumberOfElements),dtype=float)
 
     def cfdZeroCoefficients(self):
 # %==========================================================================
@@ -107,5 +111,6 @@ class Coefficients():
         self.bc.fill(0)
         ## reset the anb list of lists
         for iElement in range(self.NumberOfElements):
-            self.anb[iElement] = [0] * int(self.theCSize[iElement])
+            # self.anb[iElement] = [0] * int(self.theCSize[iElement])
+            self.anb[iElement].fill(0)
         self.dphi.fill(0)
