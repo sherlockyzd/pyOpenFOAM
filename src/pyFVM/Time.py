@@ -56,10 +56,10 @@ class Time():
                 self.currentTime = self.startTime
     
         elif Region.dictionaries.controlDict['startFrom']=='latestTime':
-                self.currentTime = float(max(Region.timeSteps))
+                self.currentTime = float(max(Region.timeDictionary))
     
         elif Region.dictionaries.controlDict['startFrom']=='firstTime':
-                self.currentTime = float(min(Region.timeSteps))
+                self.currentTime = float(min(Region.timeDictionary))
     
         print('Start time: %.2f' % self.currentTime)
         

@@ -139,7 +139,6 @@ class Region():
         #cfdReadTransportProperties需要用到网格信息。因此滞后计算，另外由于更新p.cfdUpdateScale需要密度信息，因此需要提前计算！！！！！
         self.dictionaries.cfdReadTransportProperties(self)
         self.dictionaries.cfdReadThermophysicalProperties(self)
-        
 
         """cfdGeometricLengthScale() and self.dictionaries.cfdReadTimeDirectory() require the mesh and therefore are not included in the __init__ function of FoamDictionaries and are instead called after the self.mesh=pm.Polymesh(self) line above."""
         # self.cfdGeometricLengthScale()

@@ -90,7 +90,7 @@ class Polymesh():
 
         #maybe these should go in a function?
         self.numberOfBFaces=self.numberOfFaces-self.numberOfInteriorFaces
-        self.numberOfElements = np.max(self.neighbours)+1 #because of zero indexing in Python
+        self.numberOfElements = int(np.max(self.neighbours)+1) #because of zero indexing in Python
         self.numberOfBElements=self.numberOfFaces-self.numberOfInteriorFaces #seems strange that subtracting faces gives elements ...
 
         self.cfdReadBoundaryFile()  
@@ -221,9 +221,6 @@ class Polymesh():
         # self.nodeCentroids = np.array((points_x, points_y, points_z), dtype=float).transpose()
         self.nodeCentroids = np.array(points, dtype=float)
 
-
-
-
     def cfdReadFacesFile(self):
         """ Reads the constant/polyMesh/faces file and stores the nodes pertaining to each face
             in region.mesh.faceNodes
@@ -314,8 +311,9 @@ class Polymesh():
                 faces.append(faceNodesi)
                 # self.faceNodes.append(faceNodesi)
 
-        max_length = max(len(face) for face in faces)
-        self.faceNodes = np.array([face + [None] * (max_length - len(face)) for face in faces], dtype=object)
+        # max_length = max(len(face) for face in faces)
+        # self.faceNodes = np.array([face + [None] * (max_length - len(face)) for face in faces], dtype=object)
+        self.faceNodes = np.array(faces, dtype=object)
             
                 
         # ## (array) with the nodes for each face

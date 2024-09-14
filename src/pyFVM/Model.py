@@ -1,4 +1,5 @@
 import os
+import pyFVM.IO as io
 import pyFVM.Field as field
 # import pyFVM.Coefficients as coefficients
 # import pyFVM.Solve as solve
@@ -22,6 +23,7 @@ class Model():
         self.DefineMomentumEquation(Region)
         self.DefineContinuityEquation(Region)
         self.DefineEnergyEquation(Region)
+        self.DefineScalarTransportEquation(Region)
 
     def DefineContinuityEquation(self,Region):
         initCasePath=Region.caseDirectoryPath + os.sep+'0'
@@ -30,10 +32,13 @@ class Model():
         else:
             self.equations['p']=equation.Equation('p')
             # self.equations['phi']=equation.Equation('phi')
+            self.equations['p'].setTerms(['massDivergenceTerm'])
             if not Region.STEADY_STATE_RUN:
-                self.equations['p'].setTerms(['Transient', 'massDivergenceTerm'])
-            else:
-                self.equations['p'].setTerms(['massDivergenceTerm'])
+                self.equations['p'].terms.append('Transient')
+            # if not Region.STEADY_STATE_RUN:
+            #     self.equations['p'].setTerms(['Transient', 'massDivergenceTerm'])
+            # else:
+            #     self.equations['p'].setTerms(['massDivergenceTerm'])
             Region.fluid['pprime']=field.Field(Region,'pprime','volScalarField')
             Region.fluid['pprime'].boundaryPatchRef=Region.fluid['p'].boundaryPatchRef
             for iBPatch, values in Region.fluid['pprime'].boundaryPatchRef.items():
@@ -53,16 +58,24 @@ class Model():
             print('A file of the name T  doesn''t exist in ', initCasePath)               
         else:
             self.equations['T']=equation.Equation('T')
-            try:
-                self.equations['T'].gamma=Region.fluid['kappa'].phi
-            except AttributeError:
-                self.equations['T'].gamma=Region.fluid['k'].phi/Region.fluid['Cp'].phi
-                print("self.equations['T'].gamma information doesn't exist in the FoamDictionaries object")
-            
+            self.equations['T'].setTerms([])
             if not Region.STEADY_STATE_RUN:
-                self.equations['T'].setTerms(['Transient', 'Convection','Diffusion'])
-            else:
-                self.equations['T'].setTerms(['Convection','Diffusion'])
+                self.equations['T'].terms.append('Transient')
+            for iterm in Region.dictionaries.fvSchemes['laplacianSchemes']:
+                if io.contains_term(iterm,'T'):
+                    self.equations['T'].terms.append('Diffusion')
+                    parts=io.term_split(iterm)
+                    terms_to_remove = ['laplacian', 'T']
+                    str_gammas=io.remove_terms(parts,terms_to_remove)[0]
+                    try:
+                        self.equations['T'].gamma=Region.fluid[str_gammas].phi
+                    except AttributeError:
+                        self.equations['T'].gamma=Region.fluid['k'].phi/Region.fluid['Cp'].phi
+                        print("self.equations['T'].gamma information doesn't exist in the FoamDictionaries object")
+            
+            for iterm in Region.dictionaries.fvSchemes['divSchemes']:
+                if io.contains_term(iterm,'T'):
+                    self.equations['T'].terms.append('Convection')    
 
             Region.fluid['T'].phiGrad=grad.Gradient(Region,'T')
 
@@ -73,10 +86,27 @@ class Model():
         else:
             self.equations['U']=equation.Equation('U')
             self.equations['U'].gamma=Region.fluid['mu'].phi
+            self.equations['U'].setTerms([])
             if not Region.STEADY_STATE_RUN:
-                self.equations['U'].setTerms(['Transient', 'Convection','Diffusion'])
-            else:
-                self.equations['U'].setTerms(['Convection','Diffusion'])
+                self.equations['U'].terms.append('Transient')
+                # self.equations['U'].setTerms(['Transient', 'Convection','Diffusion'])
+            # else:
+            #     self.equations['U'].setTerms(['Convection','Diffusion'])
+            for iterm in Region.dictionaries.fvSchemes['divSchemes']:
+                if io.contains_term(iterm,'U'):
+                    self.equations['U'].terms.append('Convection')
+            
+            for iterm in Region.dictionaries.fvSchemes['laplacianSchemes']:
+                if io.contains_term(iterm,'default'):
+                    self.equations['U'].terms.append('Diffusion')
+                #     parts=io.term_split(iterm)
+                #     terms_to_remove = ['laplacian', 'U']
+                #     str_gammas=io.remove_terms(parts,terms_to_remove)
+                # try:
+                #     self.equations['U'].gamma=Region.fluid[str_gammas].phi
+                # except AttributeError:
+                #     self.equations['U'].gamma=Region.fluid['k'].phi/Region.fluid['Cp'].phi
+                #     print("self.equations['U'].gamma information doesn't exist in the FoamDictionaries object")
 
             if os.path.isfile(initCasePath+ os.sep+'p'):
                 self.equations['U'].terms.append('PressureGradient')
@@ -90,7 +120,9 @@ class Model():
             self.DefineMdot_f(Region)
             Region.fluid['U'].phiGrad=grad.Gradient(Region,'U')
             
-                
+    def DefineScalarTransportEquation(self,Region):
+        pass
+
     def DefineDUfield(self,Region,name,iComponent):
         Name=name+str(iComponent)
         Region.fluid[Name]=field.Field(Region,Name,'volScalarField')

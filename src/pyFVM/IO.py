@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 #import os.path
 
@@ -483,6 +484,22 @@ def cfdGetKeyValue(key, valueType, fileID):
                         
     return [key, distribution, value]
 
+def contains_term(equation, term):
+    # 使用正则表达式分解字符串
+    parts = term_split(equation)
+    # 检查分解后的部分是否包含特定的子字符串
+    return term in parts
+
+def term_split(equation):
+    # 使用正则表达式分解字符串
+    parts = re.split(r'[(),]', equation)
+    # 移除空字符串
+    parts = [part for part in parts if part.strip()]
+    return  parts
+
+def remove_terms(parts, terms_to_remove):
+    # 删除特定项
+    return [part for part in parts if part not in terms_to_remove]
 
 def cfdReadUniformVolVectorFieldValue(volVectorFieldEntry):
 

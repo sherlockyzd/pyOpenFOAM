@@ -259,25 +259,18 @@ class FoamDictionaries():
         `cfdReadFvSolutionFile`方法的目的是读取OpenFOAM案例的求解器配置文件，并将文件中的求解器设置、SIMPLE算法设置和松弛因子等信息存储在`self.fvSolution`字典中，便于后续使用和访问。这有助于理解和配置模拟中的求解器参数和算法行为。
         """        
         print('Reading fvSolution file ...')
-        
         fvSolutionFileDirectory = r"%s/system/fvSolution" % Region.caseDirectoryPath 
-        
         self.fvSolution={}
-        
         with open(fvSolutionFileDirectory,"r") as fpid:
             
             for linecount, tline in enumerate(fpid):
-                
                 if not io.cfdSkipEmptyLines(tline):
                     continue
-                
                 if not io.cfdSkipMacroComments(tline):
                     continue
-    
                 if "FoamFile" in tline:
                     dictionary=io.cfdReadCfdDictionary(fpid)
                     continue
-               
                 if "solvers" in tline:
                     self.fvSolution['solvers']=io.cfdReadCfdDictionary(fpid)
                     for key in self.fvSolution['solvers']:
@@ -288,15 +281,12 @@ class FoamDictionaries():
                         else:
                             self.fvSolution['solvers'][key]['maxIter']=20
                             continue
-    
                 if "SIMPLE" in tline:
                     self.fvSolution['SIMPLE']=io.cfdReadCfdDictionary(fpid)
                     continue
-
                 if "PISO" in tline:
                     self.fvSolution['PISO']=io.cfdReadCfdDictionary(fpid)
                     continue
-    
                 if "relaxationFactors" in tline:
                     self.fvSolution['relaxationFactors']=io.cfdReadCfdDictionary(fpid)
                     continue
@@ -339,34 +329,26 @@ class FoamDictionaries():
         `cfdReadGravity` 方法的目的是读取OpenFOAM案例的重力定义文件，并将文件中的维度和重力值解析出来，存储在 `self.g` 字典中，便于后续使用和访问。这有助于理解和配置模拟中的重力效应。
         """    
         gravityFilePath=Region.caseDirectoryPath + os.sep+"constant"+os.sep+"g"
-        
         if not os.path.isfile(gravityFilePath):
             print('\n\nNo g file found\n')
             pass
-        
         else:
             print('Reading Gravity file ...')        
             gravityDict = io.cfdReadAllDictionaries(gravityFilePath)
-            
             dimensions=[]
             for iEntry in gravityDict['dimensions']:
-                
                 try:
                     dimensions.append(float(iEntry))
                 except ValueError:
                     pass
-            
             value=[]
             for iEntry in gravityDict['value']:
-            
                 iEntry=iEntry.replace("(","")
                 iEntry=iEntry.replace(")","")
-                
                 try:
                     value.append(float(iEntry))
                 except ValueError:
                     pass
-            
             self.g={}
             self.g['dimensions']=dimensions
             self.g['value']=value
@@ -421,20 +403,14 @@ class FoamDictionaries():
         `cfdReadTurbulenceProperties`方法的目的是读取OpenFOAM案例的湍流属性配置，并将这些属性存储在`self.turbulenceProperties`字典中，便于后续使用和访问。这有助于理解和配置模拟中的湍流模型和行为。
         """
         self.turbulenceProperties={}
-        
         turbulencePropertiesFilePath=Region.caseDirectoryPath+"/constant/turbulenceProperties"
-        
         if not os.path.isfile(turbulencePropertiesFilePath):
             self.turbulenceProperties['turbulence'] = 'off'
             self.turbulenceProperties['RASModel'] = 'laminar'
-        
         else:
             print('Reading Turbulence Properties ...')
-            
             turbulencePropertiesDict = io.cfdReadAllDictionaries(turbulencePropertiesFilePath)
-        
-            turbulenceKeys = turbulencePropertiesDict.keys();
-            
+            turbulenceKeys = turbulencePropertiesDict.keys()
             for iDict in turbulenceKeys:
                 if 'FoamFile' in iDict or 'simulationType' in iDict: 
                     pass
@@ -448,12 +424,17 @@ class FoamDictionaries():
            fields (list): fields.
         """
         Region.fvSolutionfields=[]
-        
+        # 创建一个列表来存储需要删除的键
+        keys_to_remove = []
         for key in self.fvSolution['solvers']:
-            if key == '//':
-                continue
-            Region.fvSolutionfields.append(key)
-
+            if key == '//'or not key.isidentifier():
+                keys_to_remove.append(key)
+            else:
+                Region.fvSolutionfields.append(key)
+        # 从 self.fvSolution['solvers'] 中删除不符合条件的键
+        for key in keys_to_remove:
+            del self.fvSolution['solvers'][key]
+            
     def cfdReadTimeDirectory(self,Region):
         '''
         这段Python代码定义了一个名为`cfdReadTimeDirectory`的方法，它用于确定OpenFOAM案例的时间步目录，并读取该时间步目录下的所有场数据。以下是对这个方法的中文详细解释：
@@ -505,14 +486,14 @@ class FoamDictionaries():
             
         elif self.controlDict['startFrom']=='latestTime':
             self.cfdGetTimeSteps(Region)
-            Region.timeDirectory=max(self.timeSteps)
+            Region.timeDirectory=max(Region.timeDictionary)
             
         elif self.controlDict['startFrom']=='firstTime':   
             ## I think in this case, the timeDirectory should be the minimum in 
             ## the list of time directories in the working folder (analogous to
             ## the latestTime case)
             self.cfdGetTimeSteps(Region)
-            Region.timeDirectory=min(self.timeSteps)         
+            Region.timeDirectory=min(self.timeDictionary)         
             # self.Region.timeDirectory='0' 
             
         else:
@@ -575,23 +556,18 @@ class FoamDictionaries():
                     io.cfdError('The function cfdReadNonuniformList() is not yet writen.')
                 del(valueType)#防止内部的值对以下边界的误判！！！
                    
-                for iBPatch, values in Region.mesh.cfdBoundaryPatchesArray.items():
-                    
+                for iBPatch, values in Region.mesh.cfdBoundaryPatchesArray.items():          
                     # numberOfBFaces=values['numberOfBFaces']
                     # iFaceStart=values['startFaceIndex']
-                    
                     iElementStart = values['iBElements'][0]
                     # Region.mesh.numberOfElements + iFaceStart - Region.mesh.numberOfInteriorFaces 
                     iElementEnd = values['iBElements'][-1]
                     # iElementStart+numberOfBFaces-1
                     owners_b=values['owners_b']
-                    
                     boundaryFile = io.cfdReadAllDictionaries(fieldFilePath)
                     boundaryType = boundaryFile['boundaryField'][iBPatch]['type'][0]
-
                     try:
                         boundaryValueDict = boundaryFile['boundaryField'][iBPatch]['value']
-
                         valueType, boundaryValue = io.cfdReadUniformVolVectorFieldValue(boundaryValueDict)
                         '''
                         这段代码是一个异常处理的例子，用于处理在读取和解析边界条件值时可能发生的错误。以下是对这段代码的详细解释：
@@ -662,10 +638,8 @@ class FoamDictionaries():
                                 #     else:
                                 #         Region.fluid[fieldName].phi[count]=boundaryValue
                                 for count in range(iElementStart,iElementEnd+1):
-                                    Region.fluid[fieldName].phi[count]=boundaryValue[0]
-                                        
-                            if Region.fluid[fieldName].type=='volVectorField':
-                                
+                                    Region.fluid[fieldName].phi[count]=boundaryValue[0]        
+                            if Region.fluid[fieldName].type=='volVectorField':   
                                 # for count, subList in enumerate(Region.fluid[fieldName].phi):
                                 #     if count < iElementStart or count > iElementEnd:
                                 #         continue
@@ -733,19 +707,16 @@ class FoamDictionaries():
         """
         print("Searching for time directories ... \n")
     
-        Region.timeSteps=[]
+        Region.timeDictionary=[]
         for root, directory,files in os.walk(Region.caseDirectoryPath):
             
             for folder in directory:
                 if self.cfdIsTimeDirectory(os.path.join(root, folder)):
-                    
                     #check for decimal place in folder name
                     if float(folder)-int(folder) != 0:
-                        Region.timeSteps.append(str(float(folder)))
+                        Region.timeDictionary.append(str(float(folder)))
                     elif float(folder)-int(folder) ==0:
-                        Region.timeSteps.append(str(int(folder)))
-        # print("\n")
-        
+                        Region.timeDictionary.append(str(int(folder)))
 
     def cfdIsTimeDirectory(self,theDirectoryPath):
         """Checks input directory if it is a valid time directory.
@@ -794,7 +765,7 @@ class FoamDictionaries():
             #else
             for file in os.listdir(theDirectoryPath):    
                 #check if file name is a field
-                if str(file) in self.fields:
+                if str(file) in self.fvSolution['solvers']:
                     print("%s is a time directory" % theDirectoryPath)
                     return True
             
