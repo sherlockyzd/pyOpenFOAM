@@ -31,5 +31,11 @@ SIMPLE
     nNonOrthogonalCorrectors 2;
 }
 
-
+relaxationFactors 
+{ 
+    equations 
+    { 
+        T               0.7;
+    } 
+} 
 // ************************************************************************* //

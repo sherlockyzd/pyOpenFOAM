@@ -19,6 +19,7 @@ class Model():
         #     pass
         # else:
         self.equations = {}
+        self.rhophi_exists=False
         # Create theEquation structure
         self.DefineMomentumEquation(Region)
         self.DefineContinuityEquation(Region)
@@ -31,7 +32,7 @@ class Model():
             print('A file of the name p  doesn''t exist in ', initCasePath)               
         else:
             self.equations['p']=equation.Equation('p')
-            # self.equations['phi']=equation.Equation('phi')
+            self.rhophi_exists=True
             self.equations['p'].setTerms(['massDivergenceTerm'])
             if not Region.STEADY_STATE_RUN:
                 self.equations['p'].terms.append('Transient')
@@ -61,6 +62,7 @@ class Model():
             self.equations['T'].setTerms([])
             if not Region.STEADY_STATE_RUN:
                 self.equations['T'].terms.append('Transient')
+                self.rhophi_exists=True
             for iterm in Region.dictionaries.fvSchemes['laplacianSchemes']:
                 if io.contains_term(iterm,'T'):
                     self.equations['T'].terms.append('Diffusion')
@@ -75,7 +77,8 @@ class Model():
             
             for iterm in Region.dictionaries.fvSchemes['divSchemes']:
                 if io.contains_term(iterm,'T'):
-                    self.equations['T'].terms.append('Convection')    
+                    self.equations['T'].terms.append('Convection')
+                    self.rhophi_exists=True  
 
             Region.fluid['T'].phiGrad=grad.Gradient(Region,'T')
 
@@ -89,12 +92,14 @@ class Model():
             self.equations['U'].setTerms([])
             if not Region.STEADY_STATE_RUN:
                 self.equations['U'].terms.append('Transient')
+                self.rhophi_exists=True
                 # self.equations['U'].setTerms(['Transient', 'Convection','Diffusion'])
             # else:
             #     self.equations['U'].setTerms(['Convection','Diffusion'])
             for iterm in Region.dictionaries.fvSchemes['divSchemes']:
                 if io.contains_term(iterm,'U'):
                     self.equations['U'].terms.append('Convection')
+                    self.rhophi_exists=True
             
             for iterm in Region.dictionaries.fvSchemes['laplacianSchemes']:
                 if io.contains_term(iterm,'default'):
@@ -114,6 +119,7 @@ class Model():
             try:
                 Region.dictionaries.g
                 self.equations['U'].terms.append('Buoyancy')
+                self.rhophi_exists=True
             except AttributeError:
                 print("Gravity information doesn't exist in the FoamDictionaries object")
             #Define mdot_f field

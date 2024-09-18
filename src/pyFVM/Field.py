@@ -61,36 +61,25 @@ class Field():
         if self.type == 'volScalarField':
             self.theInteriorArraySize = Region.mesh.numberOfElements
             self.theBoundaryArraySize = Region.mesh.numberOfBElements
-            self.phi = np.zeros((self.theInteriorArraySize+self.theBoundaryArraySize, 1))
-            self.phi_old = np.zeros((self.theInteriorArraySize+self.theBoundaryArraySize, 1))
             self.iComponent=1
-            # print('%s is a volScalarField' % self.name)
-        
+
         if self.type == 'volVectorField':
             self.theInteriorArraySize = Region.mesh.numberOfElements
             self.theBoundaryArraySize = Region.mesh.numberOfBElements
-            self.phi = np.zeros((self.theInteriorArraySize+self.theBoundaryArraySize, 3))
-            self.phi_old = np.zeros((self.theInteriorArraySize+self.theBoundaryArraySize, 3))
             self.iComponent=3
-            # print('%s is a volVectorField' % self.name)
         
         if self.type == 'surfaceScalarField':
             self.theInteriorArraySize = Region.mesh.numberOfInteriorFaces
             self.theBoundaryArraySize = Region.mesh.numberOfBFaces
-            self.phi = np.zeros((self.theInteriorArraySize+self.theBoundaryArraySize, 1))
-            self.phi_old = np.zeros((self.theInteriorArraySize+self.theBoundaryArraySize, 1))
             self.iComponent=1
-            # print('%s is a surfaceScalarField' % self.name)
             
         if self.type == 'surfaceVectorField':
             self.theInteriorArraySize = Region.mesh.numberOfInteriorFaces
             self.theBoundaryArraySize =Region.mesh.numberOfBFaces
-            self.phi = np.zeros((self.theInteriorArraySize+self.theBoundaryArraySize, 3))
-            self.phi_old = np.zeros((self.theInteriorArraySize+self.theBoundaryArraySize, 3))
             self.iComponent=3
-            # print('%s is a surfaceVectorField' % self.name)
-        #Previous iteration
-        # self.prevIter=self.phi
+
+        self.phi = np.zeros((self.theInteriorArraySize+self.theBoundaryArraySize, self.iComponent))
+        self.phi_old = np.zeros((self.theInteriorArraySize+self.theBoundaryArraySize, self.iComponent))
         self.cfdUpdateScale(Region)
 
     def initializeMdotFromU(self,Region):
@@ -100,7 +89,6 @@ class Field():
         rho_f=interp.cfdinterpolateFromElementsToFaces(Region,'linear',Region.fluid['rho'].phi)
         Sf=np.asarray(Region.mesh.faceSf)
         #calculate mass flux through faces, 必须写成二维数组的形式，便于后续与U的数组比较运算!
-        # self.phi=np.multiply(rho_f,(Sf*U_f).sum(1)[:,None])
         self.phi=np.multiply(rho_f,(Sf*U_f).sum(1)[:,np.newaxis])
 
     def setDimensions(self,dimensions):
@@ -119,16 +107,8 @@ class Field():
             self.prevIter[:,iComponent]=self.phi[:,iComponent]
         else:
             self.prevIter=self.phi
-
-    # def cfdGetOwnersSubArrayForInteriorFaces(self,Region):
         
-    #     if self.type == 'surfaceScalarField':
-    #         return Region.mesh.attribute[0:Region.mesh.numberOfInteriorFaces]
-             
-    #     elif self.type == 'volScalarField':
-    #         return Region.mesh.attribute[0:Region.mesh.numberOfInteriorFaces]
-        
-    def cfdGetSubArrayForInterior(self,Region,*args):    
+    def cfdGetSubArrayForInterior0(self,Region,*args):    
         if self.type == 'surfaceScalarField':
             self.phiInteriorSubArray = self.phi[0:Region.mesh.numberOfInteriorFaces]
         elif self.type == 'volScalarField':
@@ -140,22 +120,7 @@ class Field():
             else:
                 self.phiInteriorSubArray = self.phi[0:Region.mesh.numberOfElements, :]
 
-    # def cfdGetSubArrayForInterior0(theFieldName,Region,*args):
-    #     Fieldtype=Region.fluid[theFieldName].type
-    #     phi=Region.fluid[theFieldName].phi
-    #     if Fieldtype == 'surfaceScalarField':
-    #         phiInteriorSubArray =  phi[0:Region.mesh.numberOfInteriorFaces]
-    #     elif Fieldtype == 'volScalarField':
-    #         phiInteriorSubArray =  phi[0:Region.mesh.numberOfElements]    
-    #     elif Fieldtype == 'volVectorField':
-    #         if args:
-    #             iComponent = args[0]
-    #             phiInteriorSubArray =  phi[0:Region.mesh.numberOfElements,iComponent] 
-    #         else:
-    #             phiInteriorSubArray =  phi[0:Region.mesh.numberOfElements, :]
-    #     return phiInteriorSubArray
-
-    def cfdGetSubArrayForBoundary(self,Region,*args):    
+    def cfdGetSubArrayForBoundary0(self,Region,*args):
         if self.type == 'surfaceScalarField':
             self.phiBoundarySubArray = self.phi[Region.mesh.numberOfInteriorFaces:Region.mesh.numberOfFaces]
         elif self.type == 'volScalarField':
@@ -167,7 +132,7 @@ class Field():
             else:
                 self.phiBoundarySubArray = self.phi[Region.mesh.numberOfElements:Region.mesh.numberOfElements+Region.mesh.numberOfBElements, :]
 
-    def cfdGetPrevTimeStepSubArrayForInterior(self,Region,*args):    
+    def cfdGetPrevTimeStepSubArrayForInterior0(self,Region,*args):    
         if self.type == 'surfaceScalarField':
             self.phi_oldInteriorSubArray = self.phi_old[0:Region.mesh.numberOfInteriorFaces]
         elif self.type == 'volScalarField':
@@ -179,7 +144,7 @@ class Field():
             else:
                 self.phi_oldInteriorSubArray = self.phi_old[0:Region.mesh.numberOfElements,:]
 
-    def cfdGetPrevTimeStepSubArrayForBoundary(self,Region,*args):    
+    def cfdGetPrevTimeStepSubArrayForBoundary0(self,Region,*args):    
         if self.type == 'surfaceScalarField':
             self.phiBoundarySubArray = self.phi_old[Region.mesh.numberOfInteriorFaces:Region.mesh.numberOfFaces]
         elif self.type == 'volScalarField':
@@ -190,17 +155,6 @@ class Field():
                 self.phiBoundarySubArray = self.phi_old[Region.mesh.numberOfElements:Region.mesh.numberOfElements+Region.mesh.numberOfBElements,iComponent] 
             else:
                 self.phiBoundarySubArray = self.phi_old[Region.mesh.numberOfElements:Region.mesh.numberOfElements+Region.mesh.numberOfBElements,:]
-
-    # def cfdGetGradientSubArrayForInterior(self,Region,*args):
-    #     if self.type == 'volScalarField':
-    #         self.phiGradInterior=self.phiGrad.phiGrad[0:Region.mesh.numberOfElements]
-    #     elif self.type == 'volVectorField':
-    #         if args:
-    #             iComponent = args[0]
-    #             self.phiGradInterior=self.phiGrad.phiGrad[0:Region.mesh.numberOfElements,iComponent]
-    #         else:
-    #             self.phiGradInterior=self.phiGrad.phiGrad[0:Region.mesh.numberOfElements,:]
-    #     return self.phiGradInterior
         
         
     def cfdUpdateScale(self,Region):

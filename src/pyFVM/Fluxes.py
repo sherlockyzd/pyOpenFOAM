@@ -49,41 +49,24 @@ class Fluxes():
         theNumberOfElements=Region.mesh.numberOfElements
         #值保存在面心上
         #face fluxes
-        ## face flux linearization coefficients for cell C (cell of interest)
+        # face flux linearization coefficients for cell C (cell of interest)
         self.FluxCf=np.zeros((theNumberOfFaces),dtype=float)
-        ## face flux linearization coefficients for neighbouring cell
+        # face flux linearization coefficients for neighbouring cell
         self.FluxFf=np.zeros((theNumberOfFaces),dtype=float)
-        ## non-linear face coefficients 
+        # non-linear face coefficients 
         self.FluxVf=np.zeros((theNumberOfFaces),dtype=float)
-        ## total face flux (equal to FluxCf*phiC+FluxFf*phiF+FluxVf)
-        # self.FluxTf={}
-        # self.FluxTf= np.zeros((theNumberOfFaces),3)
+        # total face flux (equal to FluxCf*phiC+FluxFf*phiF+FluxVf)
         self.FluxTf= np.zeros((theNumberOfFaces),dtype=float)
 
         #值保存在体心上
         #Volume fluxes (treated as source terms)
         self.FluxC=np.zeros((theNumberOfElements),dtype=float)
-        ## volume flux equal to source value times cell volume (Q_{C}^{phi} * Vc)
+        # volume flux equal to source value times cell volume (Q_{C}^{phi} * Vc)
         self.FluxV=np.zeros((theNumberOfElements),dtype=float)
-        # self.FluxT={}
         self.FluxT= np.zeros((theNumberOfElements),dtype=float)
-        ## volume fluxes from previous time step
+        # volume fluxes from previous time step
         self.FluxC_old=np.zeros((theNumberOfElements),dtype=float)
 
-        # for root, directory,files in os.walk(Region.caseDirectoryPath + os.sep +str(Region.timeDirectory)):
-        #     if not files:
-        #         print('Fields are not found in the %s directory' % (Region.caseDirectoryPath + os.sep +Region.timeDirectory+"!"))
-
-        # priority_fields = ['p']
-        # # files_with_priority = [field for field in priority_fields if field in files]
-        # remaining_fields = [field for field in files if field not in priority_fields]
-        # # files = files_with_priority + remaining_fields
-        # for field in remaining_fields:
-        #     # print(Region.fluid[field].iComponent)
-        #     # self.FluxT[field]=np.squeeze(np.zeros((theNumberOfElements,Region.fluid[field].iComponent), dtype=float))
-        #     # self.FluxTf[field]=np.squeeze(np.zeros((theNumberOfFaces,Region.fluid[field].iComponent),dtype=float))
-        #     self.FluxT[field]=np.zeros((theNumberOfElements,Region.fluid[field].iComponent), dtype=float)
-        #     self.FluxTf[field]=np.zeros((theNumberOfFaces,Region.fluid[field].iComponent),dtype=float)
 
         print('fluxes success!')
 

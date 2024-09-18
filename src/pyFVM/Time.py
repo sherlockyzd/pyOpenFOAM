@@ -66,7 +66,7 @@ class Time():
         ##Specified end time of the simulation
         self.endTime = float(Region.dictionaries.controlDict['endTime'])
         self.deltaT  = Region.dictionaries.controlDict['deltaT']
-        self.writeInterval=int(Region.dictionaries.controlDict['writeInterval'])
+        self.writeInterval=Region.dictionaries.controlDict['writeInterval']
     
     def cfdUpdateRunTime(self):
         """Increments the simulation's runTime, updates cpu time
@@ -94,7 +94,7 @@ class Time():
         """
         检查每隔writeInterval时间步长是否需要写入数据
         """
-        if int(self.currentTime/self.deltaT) % int(self.writeInterval)== 0:
+        if int(self.currentTime/self.deltaT) % int(self.writeInterval/self.deltaT)== 0:
             return True
         else:
             return False

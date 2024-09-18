@@ -67,7 +67,7 @@ class Coefficients():
         # for iElement,value in enumerate(self.theCConn):
         #     self.theCSize[iElement]=len(self.theCConn[iElement])
              # 每个元素的邻居数量
-        self.theCSize = np.array([int(len(neighbours)) for neighbours in self.theCConn])  # 强制转换为整数
+        self.theCSize = np.array([int(len(neighbours)) for neighbours in self.theCConn],dtype=int)  # 强制转换为整数
                
         theNumberOfElements=int(len(self.theCConn))
 
