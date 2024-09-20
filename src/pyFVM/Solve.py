@@ -10,7 +10,7 @@ def cfdSolveEquation(Region,theEquationName, iComponent):
     relTol    = Region.dictionaries.fvSolution['solvers'][theEquationName]['relTol']
 
     if solver=='GAMG':
-        # % Get GAMG settings
+        #    Get GAMG settings
         preconditioner = Region.dictionaries.fvSolution['solvers'].get(theEquationName, {}).get('preconditioner', None)
         nPreSweeps     = Region.dictionaries.fvSolution['solvers'].get(theEquationName, {}).get('nPreSweeps', None)
         nPostSweeps    = Region.dictionaries.fvSolution['solvers'].get(theEquationName, {}).get('nPostSweeps', None)
@@ -23,10 +23,10 @@ def cfdSolveEquation(Region,theEquationName, iComponent):
         preconditioner = Region.dictionaries.fvSolution['solvers'][theEquationName]['preconditioner']
         [initRes, finalRes] = cfdSolvePCG(Region.coefficients, maxIter, tolerance, relTol, preconditioner)
     else:
-        # print('%s not defined', solver)
+        # print('  s not defined', solver)
         io.cfdError(solver+' solver has not beeen defined!!!')
     io.cfdPrintResidualsHeader(theEquationName,tolerance,maxIter,initRes,finalRes)
-    # % Store linear solver residuals
+    #    Store linear solver residuals
     if iComponent != -1:
         Region.assembledPhi[theEquationName].theEquation.initResidual[iComponent]=initRes
         Region.assembledPhi[theEquationName].theEquation.finalResidual[iComponent]=finalRes
@@ -34,15 +34,27 @@ def cfdSolveEquation(Region,theEquationName, iComponent):
         Region.assembledPhi[theEquationName].theEquation.initResidual=initRes
         Region.assembledPhi[theEquationName].theEquation.finalResidual=finalRes
 
-
-
 '''
 -----------------------------------------------------------
-PCG Solver
+smooth Solver
 -----------------------------------------------------------
 '''
-# 更新PCG求解器以支持多种预处理器
-def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol, preconditioner='ILU'):
+def cfdSolveAlgebraicSystem(gridLevel,theEquationName,theCoefficients,smoother = 'DILU',maxIter = 20,tolerance = 1e-6,relTol = 0.1,*args):
+    """
+    Solve the algebraic system for computational fluid dynamics.
+    Args:
+        gridLevel (int): The grid level.
+        theEquationName (str): The name of the equation.
+        theCoefficients (object): The coefficients object.
+        smoother (str, optional): The smoother type. Defaults to 'DILU'.
+        maxIter (int, optional): The maximum number of iterations. Defaults to 20.
+        tolerance (float, optional): The tolerance for convergence. Defaults to 1e-6.
+        relTol (float, optional): The relative tolerance for convergence. Defaults to 0.1.
+        iComponent (int, optional): The component index. Defaults to -1.
+    Returns:
+        tuple: A tuple containing the initial residual and final residual.
+    """
+
     ac = theCoefficients.ac
     anb = theCoefficients.anb
     bc = theCoefficients.bc
@@ -50,17 +62,311 @@ def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol, preconditioner='ILU
     dphi = theCoefficients.dphi
     theNumberOfElements = theCoefficients.NumberOfElements
 
-    # 初始残差计算
-    r = cfdComputeResidualsArray(theCoefficients)
-    initRes = sum(abs(r)) / theNumberOfElements
+    #    Compute initial residual
+    residualsArray = cfdComputeResidualsArray(theCoefficients)
+    initialResidual = sum(abs(residualsArray))/theNumberOfElements
+    finalResidual = initialResidual
 
-    # 选择预处理器
-    # preconditioner=choose_preconditioner(ac, anb, cconn)
-    # 选择预处理器并初始化 z
+    if maxIter==0:
+        return
+    # rc=bc-theCoefficients_Matrix_multiplication(ac,anb,cconn,dphi)
+    if smoother=='DILU':
+        #    Factorize Ax=b (Apply incomplete upper lower decomposition)
+        dc = cfdFactorizeILU(ac,anb,cconn)
+        #    Solve system
+        for iter in range(maxIter):
+            dphi = cfdSolveILU(ac,anb,residualsArray,dc,cconn,dphi)
+            theCoefficients.dphi = dphi
+            #    Check if termination criterion satisfied
+            residualsArray = cfdComputeResidualsArray(theCoefficients)
+            finalResidual = sum(abs(residualsArray))/theNumberOfElements
+            if (finalResidual<relTol*initialResidual) and (finalResidual<tolerance):
+                break
+
+    elif smoother=='SOR' or smoother=='GaussSeidel'  or smoother=='symGaussSeidel':
+        #    Solve system
+        for iter in range(maxIter):
+            dphi = cfdSolveSOR(ac,anb,bc,cconn,dphi)
+            theCoefficients.dphi = dphi
+            #    Check if termination criterion satisfied
+            residualsArray = cfdComputeResidualsArray(theCoefficients)
+            finalResidual = sum(abs(residualsArray))/theNumberOfElements
+            if (finalResidual<relTol*initialResidual) and (finalResidual<tolerance):
+                break
+    #    Store
+    theCoefficients.dphi = dphi
+    return initialResidual,finalResidual
+    # pass
+
+def cfdFactorizeILU(ac, anb, cconn):
+    """
+    Incomplete Lower Upper (ILU) factorization.
+    Args:
+        ac (ndarray): Diagonal elements of the matrix A.
+        anb (list of lists of floats): Off-diagonal elements (neighbors) of the matrix A.
+        bc (ndarray): Right-hand side (source term).
+        cconn (list of lists of ints): Connectivity of cells (indices of neighbors).
+    
+    Returns:
+        dc (ndarray): Diagonal elements after ILU factorization.
+    """
+    numberOfElements = len(ac)
+
+    # Initialize dc and rc with zero
+    # Step 1: Copy ac into dc
+    dc = np.copy(ac)
+
+    # Step 2: Perform ILU factorization
+    for i1 in range(numberOfElements):
+        dc[i1] = 1.0 / dc[i1]  # Store the inverse of the diagonal element
+
+        for j1_, jj1 in enumerate(cconn[i1]):
+            if jj1 > i1:
+                # Find the index where jj1 connects back to i1 in cconn[jj1]
+                try:
+                    i1_index = cconn[jj1].index(i1)
+                except ValueError:
+                    print(f'The index for i1 in jj1 was not found for element {i1}')
+                    continue
+
+                # Update the diagonal element of dc at jj1
+                dc[jj1] -= anb[jj1][i1_index] * dc[i1] * anb[i1][j1_]
+
+    return dc
+
+def theCoefficients_Matrix_multiplication(ac,anb,cconn,d):
+    theNumberOfElements = len(ac)
+    Ad = np.zeros_like(d)
+    for iElement in range(theNumberOfElements):
+            Ad[iElement] = ac[iElement] * d[iElement]
+            for iLocalNeighbour,neighbor in enumerate(cconn[iElement]):
+                Ad[iElement] += anb[iElement][iLocalNeighbour] * d[neighbor]
+    return Ad
+
+def cfdComputeResidualsArray(theCoefficients):
+    ac = theCoefficients.ac
+    anb = theCoefficients.anb
+    # bc = theCoefficients.bc
+    cconn = theCoefficients.theCConn
+    dphi = theCoefficients.dphi
+    Adphi=theCoefficients_Matrix_multiplication(ac,anb,cconn,dphi)
+    residualsArray= theCoefficients.bc-Adphi
+    # theNumberOfElements = theCoefficients.NumberOfElements
+    # residualsArray = np.zeros(theNumberOfElements)
+    # for iElement in range(theNumberOfElements):   
+    #     residualsArray[iElement] = theCoefficients.bc[iElement] - theCoefficients.ac[iElement]*theCoefficients.dphi[iElement]
+    #     for nNeighbour in range(len(theCoefficients.theCConn[iElement])):
+    #         iNeighbour = theCoefficients.theCConn[iElement][nNeighbour]
+    #         residualsArray[iElement] -= theCoefficients.anb[iElement][nNeighbour]*theCoefficients.dphi[iNeighbour]
+    return residualsArray
+
+def cfdSolveILU(ac, anb, r, dc, cconn, dphi):
+    """
+    Solve Incomplete Lower Upper (ILU) system.
+    Args:
+        ac (ndarray): Diagonal elements of the matrix A.
+        anb (list of lists of floats): Off-diagonal elements (neighbors) of the matrix A.
+        bc (ndarray): Right-hand side (source term).
+        dc (ndarray): Inverse diagonal elements from ILU factorization.
+        rc (ndarray): Residual correction array.
+        cconn (list of lists of ints): Connectivity of cells (indices of neighbors).
+        dphi (ndarray): Current solution vector.
+    
+    Returns:
+        dphi (ndarray): Updated solution vector after ILU solve.
+    """
+    numberOfElements = len(ac)
+    # Initialize Residuals array
+    rc=np.copy(r)
+
+    # Forward Substitution
+    for i1 in range(numberOfElements):
+        mat1 = dc[i1] * rc[i1]
+        i1NbList = cconn[i1]
+        for j1_, j1 in enumerate(i1NbList):
+            if j1 > i1 and j1 < numberOfElements:
+                try:
+                    i1_index = cconn[j1].index(i1)
+                except ValueError:
+                    print('ILU Solver Error: The index for i in element j is not found')
+                    continue
+
+                mat2 = anb[j1][i1_index] * mat1
+                rc[j1] -= mat2
+
+    # Backward Substitution
+    for i1 in range(numberOfElements - 1, -1, -1):
+        if i1 < numberOfElements - 1:
+            for j1_, j in enumerate(cconn[i1]):
+                if j > i1:
+                    rc[i1] -= anb[i1][j1_] * rc[j]
+
+        mat1 = dc[i1] * rc[i1]
+        rc[i1] = mat1
+        dphi[i1] += mat1
+
+    return dphi
+
+def cfdSolveSOR(ac,anb,bc,cconn,dphi):
+#   ==========================================================================
+#    Routine Description:
+#      This functions solves linear system Ax = b using Guass-Seidel method   
+#   --------------------------------------------------------------------------
+    numberOfElements = len(ac)
+    for iElement in range(numberOfElements):
+        local_dphi = bc[iElement]
+        for iLocalNeighbour,neighbor in enumerate(cconn[iElement]):
+            local_dphi -= anb[iElement][iLocalNeighbour]*dphi[neighbor]
+        dphi[iElement]  = local_dphi/ac[iElement]
+
+    for iElement in range(numberOfElements-1,-1,-1):  #逆序
+        local_dphi = bc[iElement]
+        for iLocalNeighbour,neighbor in enumerate(cconn[iElement]):
+            local_dphi -= anb[iElement][iLocalNeighbour]*dphi[neighbor]
+        dphi[iElement] = local_dphi/ac[iElement]
+    
+    return dphi
+
+'''
+-----------------------------------------------------------
+PCG Solver
+-----------------------------------------------------------
+'''
+def assemble_sparse_matrix_coo(ac, anb, cconn):
+    """
+    Assemble the sparse matrix A from ac, anb, and cconn.
+    Args:
+        ac (ndarray): Diagonal elements of the matrix A.
+        anb (list of lists): Off-diagonal neighbor elements of A.
+        cconn (list of lists): Connectivity (indices of neighbors) for each row.
+
+    Returns:
+        A_sparse (scipy.sparse.csr_matrix): The assembled sparse matrix in CSR format.
+    """
+    numberOfElements = len(ac)
+    data = []
+    row_indices = []
+    col_indices = []
+
+    # Add diagonal elements
+    for i in range(numberOfElements):
+        data.append(ac[i])
+        row_indices.append(i)
+        col_indices.append(i)
+
+    # Add off-diagonal elements
+    for i in range(numberOfElements):
+        neighbors = cconn[i]
+        anb_values = anb[i]
+        for j_, j in enumerate(neighbors):
+            data.append(anb_values[j_])
+            row_indices.append(i)
+            col_indices.append(j)
+
+    data=np.array(data)
+    row_indices=np.array(row_indices)
+    col_indices=np.array(col_indices)
+    from scipy.sparse import coo_matrix
+    # Create the sparse matrix in COO format
+    A_coo = coo_matrix((data, (row_indices, col_indices)), shape=(numberOfElements, numberOfElements))
+    # Convert to CSR format for efficient arithmetic and solving
+    A_sparse = A_coo.tocsr()
+    return A_sparse
+
+def assemble_sparse_matrix_csr(ac, anb, cconn):
+    """
+    使用 Numpy 数组将 ac, anb 和 cconn 组装成 CSR 格式的稀疏矩阵。
+
+    参数：
+        ac (ndarray): 矩阵 A 的对角元素。
+        anb (list of lists): 矩阵 A 的非对角（邻接）元素。
+        cconn (list of lists): 每一行的邻接（邻居的索引）。
+
+    返回：
+        data (ndarray): 矩阵的非零值。
+        indices (ndarray): 非零值对应的列索引。
+        indptr (ndarray): 每一行在 data 和 indices 中的起始位置索引。
+    """
+    numberOfElements = len(ac)
+    data = []
+    indices = []
+    indptr = [0]
+    for i in range(numberOfElements):
+        # 添加对角元素
+        data.append(ac[i])
+        indices.append(i)
+        # 添加非对角元素
+        neighbors = cconn[i]
+        anb_values = anb[i]
+        for j_, j in enumerate(neighbors):
+            data.append(anb_values[j_])
+            indices.append(j)
+        # indptr 记录每一行的起始位置
+        indptr.append(len(data))
+    # 将列表转换为 Numpy 数组
+    data = np.array(data)
+    indices = np.array(indices)
+    indptr = np.array(indptr)
+    from scipy.sparse import csr_matrix
+    A_sparse = csr_matrix((data, indices, indptr), shape=(len(ac), len(ac)))
+    return A_sparse
+
+# 更新PCG求解器以支持多种预处理器
+def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'):
+    from scipy.sparse.linalg import cg,spilu,LinearOperator
+    r = cfdComputeResidualsArray(theCoefficients)
+    initRes = np.linalg.norm(r, ord=2)
+    if initRes < tolerance or maxIter == 0:
+        return initRes, initRes
+    
+    ac = theCoefficients.ac
+    anb = theCoefficients.anb
+    cconn = theCoefficients.theCConn
+    dphi = np.copy(theCoefficients.dphi)  # Initial guess
+    bc = theCoefficients.bc
+    A_sparse = assemble_sparse_matrix_csr(ac, anb, cconn)
+        # Setup preconditioner
+    if preconditioner == 'ILU':
+        # Compute incomplete LU factorization
+        ilu = spilu(A_sparse)
+        # Create a linear operator for the preconditioner
+        M_x = lambda x: ilu.solve(x)
+        M = LinearOperator(shape=A_sparse.shape, matvec=M_x)
+    elif preconditioner == 'DIC':
+        # Compute DIC preconditioner
+        diag_A = A_sparse.diagonal()
+        # Ensure diagonal entries are positive
+        diag_A[diag_A <= 0] = 1e-10  # Small positive number to prevent division by zero or negative sqrt
+        M_diag = 1.0 / np.sqrt(diag_A)
+        # Create a linear operator for the preconditioner
+        def M_x(x):
+            return M_diag * x
+        M = LinearOperator(shape=A_sparse.shape, matvec=M_x)
+    elif preconditioner == 'None':
+        M = None  # No preconditioning
+    else:
+        raise ValueError(f"Unknown preconditioner: {preconditioner}")
+    
+    # Compute initial residual
+    dphi, info = cg(A_sparse, bc, x0=dphi, tol=tolerance, maxiter=maxIter, M=M)
+    if info == 0:
+        print("求解成功收敛")
+    elif info > 0:
+        print(f"在 {info} 次迭代后达到设定的收敛容限")
+    else:
+        print("求解未能收敛")
+    finalRes = np.linalg.norm(bc - A_sparse @ dphi, ord=2)
+
+    # 将最终解更新到 theCoefficients.dphi 中
+    theCoefficients.dphi = dphi
+    return initRes, finalRes
+
+def preconditioner_solve(r,ac,anb,cconn,preconditioner):
     #Y. Ye, H. Guo, B. Wang, P. Wang, D. Chen and F. Li, "Coupled Incomplete Cholesky and Jacobi Preconditioned Conjugate Gradient on the New Generation of Sunway Many-Core Architecture," in IEEE Transactions on Computers, vol. 72, no. 11, pp. 3326-3339, 1 Nov. 2023, https://doi.org/10.1109/TC.2023.3296884.
     if preconditioner == 'DIC':
         dc = cfdFactorizeDIC(ac, anb, cconn)
-        z = cfdSolveDIC(ac, anb, r, dc, cconn, np.zeros_like(r))
+        z  = r*dc*dc
+        # z = cfdSolveDIC(ac, anb, r, dc, cconn, np.zeros_like(r))
     elif preconditioner == 'ILU':
         dc = cfdFactorizeILU(ac, anb, cconn)
         z = cfdSolveILU(ac, anb, r, dc, cconn, np.zeros_like(r))
@@ -68,24 +374,80 @@ def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol, preconditioner='ILU
         z = jacobiPreconditioner(ac, anb, cconn, r)
     else:
         raise ValueError(f"未知的预处理器: {preconditioner}")
-    # z=r/ac
+    return z
 
+# 更新PCG求解器以支持多种预处理器
+def cfdSolvePCG1(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'):
+    ac = theCoefficients.ac
+    anb = theCoefficients.anb
+    cconn = theCoefficients.theCConn
+    dphi = np.copy(theCoefficients.dphi)  # Initial guess
+    # Compute initial residual
+    r = cfdComputeResidualsArray(theCoefficients)
+    initRes = np.linalg.norm(r, ord=2)
+    if initRes < tolerance or maxIter == 0:
+        return initRes, initRes
 
+    # Apply the preconditioner to the initial residual
+    z=preconditioner_solve(r,ac,anb,cconn,preconditioner)  # M_inv should be set in theCoefficients
+    d = np.copy(z)
+    rz_old = np.dot(r, z)
+
+    for iter in range(maxIter):
+        # Compute Ad = A * d
+        Ad=theCoefficients_Matrix_multiplication(ac,anb,cconn,d)
+
+        # Calculate step size alpha
+        alpha = rz_old / (np.dot(d, Ad)+1e-20)
+
+        # Update solution
+        dphi += alpha * d
+
+        # Calculate new residual
+        r -= alpha * Ad
+
+        # Check for convergence
+        finalRes = np.linalg.norm(r, ord=2)
+        if finalRes < max(relTol * initRes, tolerance):
+            break
+        # Apply the preconditioner
+        z=preconditioner_solve(r,ac,anb,cconn,preconditioner)
+
+        # Calculate beta
+        rz_new = np.dot(r, z)
+        beta = rz_new / rz_old
+
+        # Update search direction
+        d = z + beta * d
+
+        # Update rz_old for next iteration
+        rz_old = rz_new
+
+    # 将最终解更新到 theCoefficients.dphi 中
+    theCoefficients.dphi = dphi
+    return initRes, finalRes
+
+def cfdSolvePCG0(theCoefficients, maxIter, tolerance, relTol, preconditioner='ILU'):
+    ac = theCoefficients.ac
+    anb = theCoefficients.anb
+    cconn = theCoefficients.theCConn
+    dphi = theCoefficients.dphi
+    theNumberOfElements = theCoefficients.NumberOfElements
+    # 初始残差计算
+    r = cfdComputeResidualsArray(theCoefficients)
+    initRes = sum(abs(r)) / theNumberOfElements
+    # 选择预处理器并初始化 z
+    #Y. Ye, H. Guo, B. Wang, P. Wang, D. Chen and F. Li, "Coupled Incomplete Cholesky and Jacobi Preconditioned Conjugate Gradient on the New Generation of Sunway Many-Core Architecture," in IEEE Transactions on Computers, vol. 72, no. 11, pp. 3326-3339, 1 Nov. 2023, https://doi.org/10.1109/TC.2023.3296884.
+    z=preconditioner_solve(r,ac,anb,cconn,preconditioner)
     p = np.copy(z)
     rz_old = np.dot(r, z)
     finalRes = initRes
-
     if maxIter == 0:
         return initRes, finalRes
 
     for k in range(maxIter):
         # 矩阵向量乘积 A * p
-        Ap = np.zeros(theNumberOfElements)
-        for i in range(theNumberOfElements):
-            Ap[i] = ac[i] * p[i]
-            for j in range(len(cconn[i])):
-                Ap[i] += anb[i][j] * p[cconn[i][j]]
-
+        Ap = theCoefficients_Matrix_multiplication(ac,anb,cconn,p)
         alpha = rz_old / (np.dot(p, Ap)+1e-20)
         dphi = dphi + alpha * p
         r = r - alpha * Ap
@@ -93,21 +455,8 @@ def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol, preconditioner='ILU
         finalRes = sum(abs(r)) / theNumberOfElements
         if finalRes < max(relTol * initRes, tolerance):
             break
-
         # 预处理应用
-        if k % 5 == 0:
-            if preconditioner == 'DIC':
-                z = r * dc  # 使用选定预处理器的残差
-                z = cfdSolveDIC(ac, anb, r, dc, cconn, z)
-            elif preconditioner == 'ILU':
-                z = r * dc  # 使用选定预处理器的残差
-                z = cfdSolveILU(ac, anb, r, dc, cconn, z)
-            elif preconditioner == 'Jacobi':
-                z = jacobiPreconditioner(ac, anb, cconn, r)
-            else:
-                raise ValueError(f"未知的预处理器: {preconditioner}")
-
-
+        z=preconditioner_solve(r,ac,anb,cconn,preconditioner)
         rz_new = np.dot(r, z)
         beta = rz_new / rz_old
         p = z + beta * p
@@ -142,11 +491,7 @@ def jacobiPreconditioner(ac, anb, cconn, r, max_iter=10, tol=1e-6):
     # Jacobi 迭代更新
     for _ in range(max_iter):
         # 计算 Az_k
-        Az = np.zeros_like(r)
-        for i in range(len(ac)):
-            Az[i] = ac[i] * z[i]
-            for j, neighbor in enumerate(cconn[i]):
-                Az[i] += anb[i][j] * z[neighbor]
+        Az =theCoefficients_Matrix_multiplication(ac,anb,cconn,z)
         
         # 更新 z_k+1
         z_new = z + D_inv * (r - Az)
@@ -159,443 +504,143 @@ def jacobiPreconditioner(ac, anb, cconn, r, max_iter=10, tol=1e-6):
     
     return z
 
-# 示例用法：
-# ac 是对角元素数组
-# anb 是非对角元素列表的列表
-# cconn 是连接关系的列表的列表
-# r 是残差向量
-# z = jacobiPreconditioner(ac, anb, cconn, r)
 
 # DIC预处理器的实现
 def cfdFactorizeDIC(ac, anb, cconn):
     """
-    Diagonal Incomplete Cholesky (DIC) factorization storing inverse of diagonal elements.
-    Args:
-        ac (ndarray): Diagonal elements of the matrix A.
-        anb (ndarray): Off-diagonal elements (neighbors) of the matrix A.
-        cconn (list of lists): Connectivity of cells (indices of neighbors).
-    
-    Returns:
-        dc (ndarray): Inverse of the DIC factorized diagonal.
+    对角不完全 Cholesky (DIC) 因子化。
+
+    参数：
+        ac (ndarray): 矩阵 A 的对角元素。
+        anb (list of lists of floats): 矩阵 A 的非对角（邻接）元素。
+        cconn (list of lists of ints): 单元的连通性（邻居的索引）。
+
+    返回：
+        dc (ndarray): 调整后对角元素平方根的倒数。
     """
     numberOfElements = len(ac)
     dc = np.zeros(numberOfElements)
 
     for i in range(numberOfElements):
         sum_terms = 0.0
-        for j, neighbor in enumerate(cconn[i]):
-            if neighbor < i:  # Only consider lower triangular part
-                # 注意此处的修正项计算已经调整为使用倒数
-                sum_terms += (anb[i][j] ** 2) * dc[neighbor]
-        
+        for j_, neighbor in enumerate(cconn[i]):
+            if neighbor < i:
+                # 使用先前计算的 dc[neighbor]
+                sum_terms += (anb[i][j_] * dc[neighbor]) ** 2
         diag_element = ac[i] - sum_terms
         if diag_element <= 0:
-            diag_element = 1e-10
-            # raise ValueError(f"DIC factorization failed at element {i}, non-positive diagonal element.")
-
-        dc[i] = 1.0 / diag_element  # 存储的是对角元素的倒数
+            diag_element = 1e-10  # 防止对角元素为零或负值
+        dc[i] = 1.0 / np.sqrt(diag_element)
 
     return dc
 
-def cfdSolveDIC(ac, anb, bc, dc, cconn, dphi):
+
+def cfdSolveDIC(ac, anb, r, dc, cconn, dphi):
     """
-    Solve system using Diagonal Incomplete Cholesky (DIC) factorization.
-    Args:
-        ac (ndarray): Diagonal elements of the matrix A.
-        anb (list of lists of floats): Off-diagonal elements (neighbors) of the matrix A.
-        bc (ndarray): Right-hand side (source term).
-        dc (ndarray): Factorized diagonal elements from DIC factorization.
-        cconn (list of lists of ints): Connectivity of cells (indices of neighbors).
-        dphi (ndarray): Current solution vector.
-    
-    Returns:
-        dphi (ndarray): Updated solution vector after DIC solve.
+    对残差向量应用 DIC 预处理器。
+
+    参数：
+        ac (ndarray): 矩阵 A 的对角元素。
+        anb (list of lists of floats): 矩阵 A 的非对角（邻接）元素。
+        r (ndarray): 残差向量。
+        dc (ndarray): 调整后对角元素平方根的倒数。
+        cconn (list of lists of ints): 单元的连通性（邻居的索引）。
+        dphi (ndarray): 待更新的解向量。
+
+    返回：
+        dphi (ndarray): 应用 DIC 后更新的解向量。
     """
     numberOfElements = len(ac)
-    rc = np.zeros_like(dphi)
+    rc = np.copy(r)
 
-    # Step 1: Update Residuals array
-    for iElement in range(numberOfElements):
-        conn = cconn[iElement]
-        res = -ac[iElement] * dphi[iElement] + bc[iElement]
+    # 前向替换
+    for i in range(numberOfElements):
+        sum_terms = 0.0
+        for j_, j in enumerate(cconn[i]):
+            if j < i:
+                sum_terms += anb[i][j_] * rc[j]
+        rc[i] = (rc[i] - sum_terms) * dc[i]
 
-        for iLocalNeighbour, j in enumerate(conn):
-            res -= anb[iElement][iLocalNeighbour] * dphi[j]
-
-        rc[iElement] = res
-
-    # Step 2: Forward Substitution
-    for i1 in range(numberOfElements):
-        mat1 = rc[i1] / dc[i1]
-        i1NbList = cconn[i1]
-
-        for j1_, j1 in enumerate(i1NbList):
-            if j1 > i1:
-                try:
-                    i1_index = cconn[j1].index(i1)
-                except ValueError:
-                    print('DIC Solver Error: The index for i1 in element j is not found')
-                    continue
-
-                rc[j1] -= anb[j1][i1_index] * mat1
-
-    # Step 3: Backward Substitution
-    for i1 in range(numberOfElements - 1, -1, -1):
-        rc[i1] /= dc[i1]
-        dphi[i1] += rc[i1]
-
-        for j1_, j in enumerate(cconn[i1]):
-            if j > i1:
-                rc[j] -= anb[i1][j1_] * rc[i1]
+    # 后向替换
+    for i in range(numberOfElements -1, -1, -1):
+        rc[i] *= dc[i]
+        sum_terms = 0.0
+        for j_, j in enumerate(cconn[i]):
+            if j > i:
+                sum_terms += anb[i][j_] * rc[j]
+        rc[i] -= sum_terms
+        dphi[i] += rc[i]
 
     return dphi
 
 
-# def cfdFactorizeILU_orig(ac,anb,bc,cconn):
-# # %==========================================================================
-# # % Routine Description:
-# # %   Incomplete Lower Upper Factorization
-# # %--------------------------------------------------------------------------
-#     numberOfElements = len(ac)
-#     dc = np.zeros_like(ac)
-#     rc = np.zeros_like(ac)
-#     for i1 in range(numberOfElements):
-#         dc[i1] = ac[i1]
-
-#     for i1 in range(numberOfElements):
-#         dc[i1] = 1.0/dc[i1]# 这里将 dc 中的对角元素取倒数
-#         rc[i1] = bc[i1]
-#         i1NbList = cconn[i1]
-#         i1NNb = len(i1NbList)
-#         if i1 != numberOfElements-1:
-#             # % loop over neighbours of iElement
-#             j1_ = 1
-#             while j1_<=i1NNb:
-#                 jj1 = i1NbList(j1_)
-#                 # % for all neighbour j > i do
-#                 if jj1>i1 and jj1<=numberOfElements:
-#                     j1NbList = cconn[jj1]
-#                     j1NNb = len(j1NbList)
-#                     i1_= 0
-#                     k1 = -1
-#                     # % find _i index to get A[j][_i]
-#                     while i1_<=j1NNb and k1 != i1:
-#                         i1_ = i1_ + 1
-#                         k1 = j1NbList(i1_)
-#                     # % Compute A[j][i]*D[i]*A[i][j]
-#                     if k1 == i1:
-#                         dc[jj1] -= anb[jj1][i1_]*dc[i1]*anb[i1][j1_]
-#                     else:
-#                         print('the index for i in j is not found')
-#                 j1_ = j1_ + 1
-#     return dc,rc
-
-
-def cfdFactorizeILU(ac, anb, cconn):
-    """
-    Incomplete Lower Upper (ILU) factorization.
-    Args:
-        ac (ndarray): Diagonal elements of the matrix A.
-        anb (list of lists of floats): Off-diagonal elements (neighbors) of the matrix A.
-        bc (ndarray): Right-hand side (source term).
-        cconn (list of lists of ints): Connectivity of cells (indices of neighbors).
-    
-    Returns:
-        dc (ndarray): Diagonal elements after ILU factorization.
-        rc (ndarray): Residual correction array initialized to bc.
-    """
-    numberOfElements = len(ac)
-
-    # Initialize dc and rc with zeros
-    dc = np.zeros_like(ac)
-    # rc = np.copy(bc)  # Initialize rc with bc values
-
-    # Step 1: Copy ac into dc
-    dc[:] = ac[:]
-
-    # Step 2: Perform ILU factorization
-    for i1 in range(numberOfElements):
-        dc[i1] = 1.0 / dc[i1]  # Store the inverse of the diagonal element
-
-        for j1_, jj1 in enumerate(cconn[i1]):
-            if jj1 > i1:
-                # Find the index where jj1 connects back to i1 in cconn[jj1]
-                try:
-                    i1_index = cconn[jj1].index(i1)
-                except ValueError:
-                    print(f'The index for i1 in jj1 was not found for element {i1}')
-                    continue
-
-                # Update the diagonal element of dc at jj1
-                dc[jj1] -= anb[jj1][i1_index] * dc[i1] * anb[i1][j1_]
-
-    return dc
-
-# def cfdFactorizeDIC(ac, anb, cconn):
-#     """
-#     Diagonal Incomplete Cholesky (DIC) factorization.
-#     Args:
-#         ac (ndarray): Diagonal elements of the matrix A.
-#         anb (ndarray): Off-diagonal elements (neighbors) of the matrix A.
-#         cconn (list of lists): Connectivity of cells (indices of neighbors).
-    
-#     Returns:
-#         dc (ndarray): DIC factorized diagonal.
-#     """
-#     numberOfElements = len(ac)
-#     dc = np.zeros(numberOfElements)
-
-#     for i in range(numberOfElements):
-#         sum_terms = 0.0
-#         for j, neighbor in enumerate(cconn[i]):
-#             if neighbor < i:  # Only consider lower triangular part
-#                 sum_terms += (anb[i][j] ** 2) / dc[neighbor]
-        
-#         dc[i] = ac[i] - sum_terms
-#         if dc[i] <= 0:
-#             raise ValueError(f"DIC factorization failed at element {i}, non-positive diagonal element.")
-#         dc[i] = np.sqrt(dc[i])
-#     return dc
-
-def cfdSolveAlgebraicSystem(gridLevel,theEquationName,theCoefficients,smoother = 'DILU',maxIter = 20,tolerance = 1e-6,relTol = 0.1,*args):
-    """
-    Solve the algebraic system for computational fluid dynamics.
-    Args:
-        gridLevel (int): The grid level.
-        theEquationName (str): The name of the equation.
-        theCoefficients (object): The coefficients object.
-        smoother (str, optional): The smoother type. Defaults to 'DILU'.
-        maxIter (int, optional): The maximum number of iterations. Defaults to 20.
-        tolerance (float, optional): The tolerance for convergence. Defaults to 1e-6.
-        relTol (float, optional): The relative tolerance for convergence. Defaults to 0.1.
-        iComponent (int, optional): The component index. Defaults to -1.
-    Returns:
-        tuple: A tuple containing the initial residual and final residual.
-    """
-
-    ac = theCoefficients.ac
-    anb = theCoefficients.anb
-    bc = theCoefficients.bc
-    cconn = theCoefficients.theCConn
-    dphi = theCoefficients.dphi
-    theNumberOfElements = theCoefficients.NumberOfElements
-
-    # % Compute initial residual
-    residualsArray = cfdComputeResidualsArray(theCoefficients)
-    # residualsArray = np.zeros(theNumberOfElements)
-    # for iElement in range(theNumberOfElements):   
-    #     residualsArray[iElement] = bc[iElement] - ac[iElement]*dphi[iElement]
-    #     for nNeighbour in range(len(cconn[iElement])):
-    #         iNeighbour = cconn[iElement][nNeighbour]
-    #         residualsArray[iElement] -= anb[iElement][nNeighbour]*dphi[iNeighbour]
-    initialResidual = sum(abs(residualsArray))/theNumberOfElements
-    finalResidual = initialResidual
-
-    if maxIter==0:
-        return
-    
-    if smoother=='DILU':
-        # % Factorize Ax=b (Apply incomplete upper lower decomposition)
-        dc = cfdFactorizeILU(ac,anb,cconn)
-        # % Solve system
-        for iter in range(maxIter):
-            dphi = cfdSolveILU(ac,anb,bc,dc,cconn,dphi)
-            theCoefficients.dphi = dphi
-            # % Check if termination criterion satisfied
-            residualsArray = cfdComputeResidualsArray(theCoefficients)
-            finalResidual = sum(abs(residualsArray))/theNumberOfElements
-            # if iComponent != -1:
-            #     io.cfdPrintInteration(theEquationName,iter,iComponent)
-            # else:
-            #     io.cfdPrintInteration(theEquationName,iter)
-            if (finalResidual<relTol*initialResidual) and (finalResidual<tolerance):
-                break
-
-    elif smoother=='SOR' or smoother=='GaussSeidel'  or smoother=='symGaussSeidel':
-        # % Solve system
-        for iter in range(maxIter):
-            dphi = cfdSolveSOR(ac,anb,bc,cconn,dphi)
-            theCoefficients.dphi = dphi
-            # % Check if termination criterion satisfied
-            residualsArray = cfdComputeResidualsArray(theCoefficients)
-            finalResidual = sum(abs(residualsArray))/theNumberOfElements
-            # if iComponent != -1:
-            #     io.cfdPrintInteration(theEquationName,iter,iComponent)
-            # else:
-            #     io.cfdPrintInteration(theEquationName,iter)
-            if (finalResidual<relTol*initialResidual) and (finalResidual<tolerance):
-                break
-    # % Store
-    theCoefficients.dphi = dphi
-    return initialResidual,finalResidual
-    # pass
-
-def cfdComputeResidualsArray(theCoefficients):
-    # ac = theCoefficients.ac
-    # anb = theCoefficients.anb
-    # bc = theCoefficients.bc
-    # cconn = theCoefficients.theCConn
-    # dphi = theCoefficients.dphi
-    theNumberOfElements = theCoefficients.NumberOfElements
-    residualsArray = np.zeros(theNumberOfElements)
-    for iElement in range(theNumberOfElements):   
-        residualsArray[iElement] = theCoefficients.bc[iElement] - theCoefficients.ac[iElement]*theCoefficients.dphi[iElement]
-        for nNeighbour in range(len(theCoefficients.theCConn[iElement])):
-            iNeighbour = theCoefficients.theCConn[iElement][nNeighbour]
-            residualsArray[iElement] -= theCoefficients.anb[iElement][nNeighbour]*theCoefficients.dphi[iNeighbour]
-    return residualsArray
-
-
 
 def cfdSolveILU_orig(ac,anb,bc,dc,rc,cconn,dphi):
-# %==========================================================================
-# % Routine Description:
-# %   Solve Incomplete Lower Upper system
-# %--------------------------------------------------------------------------
-# % ILU Iterate
+#   ==========================================================================
+#    Routine Description:
+#      Solve Incomplete Lower Upper system
+#   --------------------------------------------------------------------------
+#    ILU Iterate
     numberOfElements = len(ac)
-    # % Update Residuals array
-    for iElement in range(numberOfElements):
-        conn = cconn[iElement]
-        res = -ac[iElement]*dphi[iElement] + bc[iElement]
-        theNumberOfNeighbours = len(conn)
+    #  Update Residuals array
+    rc = bc - theCoefficients_Matrix_multiplication(ac, anb, cconn, dphi)
+    # for iElement in range(numberOfElements):
+    #     conn = cconn[iElement]
+    #     res = -ac[iElement]*dphi[iElement] + bc[iElement]
+    #     theNumberOfNeighbours = len(conn)
 
-        for iLocalNeighbour in range(theNumberOfNeighbours):
-            # % Get the neighbour cell index
-            j    = conn[iLocalNeighbour]
-            res -=  anb[iElement][iLocalNeighbour]*dphi[j]
-        rc[iElement]= res
+    #     for iLocalNeighbour in range(theNumberOfNeighbours):
+    #         #    Get the neighbour cell index
+    #         j    = conn[iLocalNeighbour]
+    #         res -=  anb[iElement][iLocalNeighbour]*dphi[j]
+    #     rc[iElement]= res
 
-    # % Forward Substitution
+    #    Forward Substitution
     for i1 in range(numberOfElements):
         mat1 = dc[i1]*rc[i1]
         i1NNb = len(cconn[i1])
         i1NbList = cconn[i1]
-        # % Loop over neighbours of i
+        #    Loop over neighbours of i
         j1_ = 0
         while j1_+1 <= i1NNb:
             j1_ +=  1
             j1   = i1NbList[j1_]
-            # % For all neighbour j > i do
+            #    For all neighbour j > i do
             if j1 > i1 and j1<=numberOfElements:
                 j1NbList = cconn[j1]
                 j1NNB = len(j1NbList)
                 i1_= 0
                 k = 0
-                # % Get A[j][i]
+                #    Get A[j][i]
                 while i1_+1<=j1NNB  and k != i1 :
                     i1_ += 1
                     k    = j1NbList[i1_]
-                # % Compute rc
+                #    Compute rc
                 if k == i1:
                     mat2    =  anb[j1][i1_]*mat1
                     rc[j1] -= mat2
                 else:
                     print('ILU Solver Error The index for i  in element j  is not found \n')
-    # % Backward substitution
+    #    Backward substitution
     for i1 in range(numberOfElements-1, -1, -1):
-        # % Compute rc
+        #    Compute rc
         if i1<numberOfElements:
             i1NBList = cconn[i1]
             i1NNb = len(i1NBList)
             j1_ = 0
-            # % Loop over neighbours of i
+            #    Loop over neighbours of i
             while j1_+1 <= i1NNb:
                 j1_ += 1
                 j    = i1NBList[j1_]
                 if j>i1:
                     rc[i1] -= anb[i1][j1_]*rc[j]
-        # % Compute product D[i]*R[i]
+        #    Compute product D[i]*R[i]
         mat1 = dc[i1]*rc[i1]
         rc[i1] = mat1
-        # % Update dphi
+        #    Update dphi
         dphi[i1] +=  mat1
 
     return dphi
-
-import numpy as np
-
-def cfdSolveILU(ac, anb, bc, dc, cconn, dphi):
-    """
-    Solve Incomplete Lower Upper (ILU) system.
-    Args:
-        ac (ndarray): Diagonal elements of the matrix A.
-        anb (list of lists of floats): Off-diagonal elements (neighbors) of the matrix A.
-        bc (ndarray): Right-hand side (source term).
-        dc (ndarray): Inverse diagonal elements from ILU factorization.
-        rc (ndarray): Residual correction array.
-        cconn (list of lists of ints): Connectivity of cells (indices of neighbors).
-        dphi (ndarray): Current solution vector.
-    
-    Returns:
-        dphi (ndarray): Updated solution vector after ILU solve.
-    """
-    numberOfElements = len(ac)
-     # Initialize Residuals array
-    rc = np.zeros_like(dphi)
-
-    # Update Residuals array
-    for iElement in range(numberOfElements):
-        conn = cconn[iElement]
-        res = -ac[iElement] * dphi[iElement] + bc[iElement]
-
-        for iLocalNeighbour, j in enumerate(conn):
-            res -= anb[iElement][iLocalNeighbour] * dphi[j]
-
-        rc[iElement] = res
-
-    # Forward Substitution
-    for i1 in range(numberOfElements):
-        mat1 = dc[i1] * rc[i1]
-        i1NbList = cconn[i1]
-
-        for j1_, j1 in enumerate(i1NbList):
-            if j1 > i1 and j1 < numberOfElements:
-                try:
-                    i1_index = cconn[j1].index(i1)
-                except ValueError:
-                    print('ILU Solver Error: The index for i in element j is not found')
-                    continue
-
-                mat2 = anb[j1][i1_index] * mat1
-                rc[j1] -= mat2
-
-    # Backward Substitution
-    for i1 in range(numberOfElements - 1, -1, -1):
-        if i1 < numberOfElements - 1:
-            for j1_, j in enumerate(cconn[i1]):
-                if j > i1:
-                    rc[i1] -= anb[i1][j1_] * rc[j]
-
-        mat1 = dc[i1] * rc[i1]
-        rc[i1] = mat1
-        dphi[i1] += mat1
-
-    return dphi
-
-def cfdSolveSOR(ac,anb,bc,cconn,dphi):
-# %==========================================================================
-# % Routine Description:
-# %   This functions solves linear system Ax = b using Guass-Seidel method   
-# %--------------------------------------------------------------------------
-    numberOfElements = len(ac)
-    for iElement in range(numberOfElements):
-        local_dphi = bc[iElement]
-        for iLocalNeighbour in range(len(cconn[iElement])):
-            iNeighbour  = cconn[iElement][iLocalNeighbour]
-            local_dphi -= anb[iElement][iLocalNeighbour]*dphi[iNeighbour]
-        dphi[iElement]  = local_dphi/ac[iElement]
-
-    for iElement in range(numberOfElements-1,-1,-1):  #逆序
-        local_dphi = bc[iElement]
-        for iLocalNeighbour in range(len(cconn[iElement])):
-            iNeighbour = cconn[iElement][iLocalNeighbour]
-            local_dphi = local_dphi - anb[iElement][iLocalNeighbour]*dphi[iNeighbour]
-        dphi[iElement] = local_dphi/ac[iElement]
-    
-    return dphi
-
-
 
 
 '''
