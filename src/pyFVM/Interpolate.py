@@ -60,7 +60,7 @@ def cfdinterpolateFromElementsToFaces(Region,scheme,field,*args):
     # neighbours_f = Region.mesh.interiorFaceNeighbours
     
     #interpolation factor p.160 in Moukalled
-    g_f=np.asarray(Region.mesh.interiorFaceWeights)
+    g_f=Region.mesh.interiorFaceWeights
     
     #array of ones for subtraction operation below
     # ones=np.ones((numberOfInteriorFaces))
@@ -128,7 +128,7 @@ def  cfdInterpolateFromElementsToInteriorFaces(Region,theInterpolationScheme, ph
     # % Get info
     owners_f = Region.mesh.interiorFaceOwners
     neighbours_f = Region.mesh.interiorFaceNeighbours
-    g_f = np.asarray(Region.mesh.interiorFaceWeights)
+    g_f = Region.mesh.interiorFaceWeights
     volumes = Region.mesh.elementVolumes
     theNumberOfInteriorFaces = Region.mesh.numberOfInteriorFaces
 
@@ -146,14 +146,14 @@ def  cfdInterpolateFromElementsToInteriorFaces(Region,theInterpolationScheme, ph
             mdot_f=args[0]
         else:
             io.cfdError('No mdot_f')
-        pos = np.zeros(mdot_f.shape)
-        pos[mdot_f>0] = 1
+        pos = np.zeros(mdot_f.shape,dtype=np.int32)
+        pos[mdot_f>0] = int(1)
         pos=np.squeeze(pos)
         for iComponent in range(theNumberOfComponents):
             phi_f[:,iComponent] = phi[owners_f,iComponent]*pos + phi[neighbours_f,iComponent]*(1 - pos)
     elif theInterpolationScheme=='linear':
         for iComponent in range(theNumberOfComponents):
-            phi_f[:,iComponent] = g_f*phi[neighbours_f,iComponent] + (1-g_f)*phi[owners_f,iComponent]
+            phi_f[:,iComponent] = g_f*phi[owners_f,iComponent] + (1-g_f)*phi[neighbours_f,iComponent]
     else:
         io.cfdError(theInterpolationScheme,+' interpolation scheme incorrect\n')
  
@@ -232,7 +232,7 @@ def cfdInterpolateGradientsFromElementsToInteriorFaces(Region,gradPhi,scheme,*ar
             If the faceWeight (g_f) of the owner cell is high, then its gradient contributes more to the face's gradient than the neighbour cell.
         
         """
-        grad_f=(ones-g_f)[:,None]*gradPhi[neighbours_f,:]+np.asarray(g_f)[:,None]*gradPhi[owners_f,:]
+        grad_f=(ones-g_f)[:,None]*gradPhi[neighbours_f,:]+g_f[:,None]*gradPhi[owners_f,:]
         # grad_f[:,0]=(ones-g_f)*gradPhi[neighbours_f][:,0]+\
         # g_f*gradPhi[owners_f][:,0]
         
@@ -254,7 +254,7 @@ def cfdInterpolateGradientsFromElementsToInteriorFaces(Region,gradPhi,scheme,*ar
         
         # grad_f[:,2]=(ones-g_f)*gradPhi[neighbours_f][:,2]+\
         # g_f*gradPhi[owners_f][:,2]
-        grad_f=(ones-g_f)[:,None]*gradPhi[neighbours_f,:]+np.asarray(g_f)[:,None]*gradPhi[owners_f,:]
+        grad_f=(ones-g_f)[:,None]*gradPhi[neighbours_f,:]+g_f[:,None]*gradPhi[owners_f,:]
         # % ScfdUrface-normal gradient
         dcfdMag = mth.cfdMag(CF)
         e_CF = mth.cfdUnit(CF)
@@ -284,7 +284,7 @@ def cfdInterpolateGradientsFromElementsToInteriorFaces(Region,gradPhi,scheme,*ar
         #not yet implemented, but it will have to be
         # io.cfdError(scheme+'not yet implemented, but it will have to be')
         # local_grad_f=np.zeros((numberOfInteriorFaces,3),dtype='float')
-        local_grad_f=(ones-g_f)[:,None]*gradPhi[neighbours_f,:]+np.asarray(g_f)[:,None]*gradPhi[owners_f,:]
+        local_grad_f=(ones-g_f)[:,None]*gradPhi[neighbours_f,:]+g_f[:,None]*gradPhi[owners_f,:]
         # local_grad_f[:,0]=(ones-g_f)*gradPhi[neighbours_f][:,0]+\
         # g_f*gradPhi[owners_f][:,0]
         

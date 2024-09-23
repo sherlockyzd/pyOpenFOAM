@@ -138,15 +138,15 @@ class Assemble:
         for iFace in range(numberOfInteriorFaces):
             own = Region.mesh.owners[iFace]
             nei = Region.mesh.neighbours[iFace]
-            iOwnerNeighbourCoef = Region.mesh.upperAnbCoeffIndex[iFace]
-            iNeighbourOwnerCoef = Region.mesh.lowerAnbCoeffIndex[iFace]
+            own_anb_index = Region.mesh.upperAnbCoeffIndex[iFace]
+            nei_anb_index = Region.mesh.lowerAnbCoeffIndex[iFace]
             # Assemble fluxes for owner cell    Region.coefficients.anb[0][0]
             Region.coefficients.ac[own]                       +=  Region.fluxes.FluxCf[iFace]
-            Region.coefficients.anb[own][iOwnerNeighbourCoef] +=  Region.fluxes.FluxFf[iFace]
+            Region.coefficients.anb[own][own_anb_index] +=  Region.fluxes.FluxFf[iFace]
             Region.coefficients.bc[own]                       -=  Region.fluxes.FluxTf[iFace]
             #   Assemble fluxes for neighbour cell
             Region.coefficients.ac[nei]                       -=  Region.fluxes.FluxFf[iFace] #需调换顺序
-            Region.coefficients.anb[nei][iNeighbourOwnerCoef] -=  Region.fluxes.FluxCf[iFace]
+            Region.coefficients.anb[nei][nei_anb_index] -=  Region.fluxes.FluxCf[iFace]
             Region.coefficients.bc[nei]                       +=  Region.fluxes.FluxTf[iFace]
 
         #   Assemble fluxes of cfdBoundary faces
@@ -687,7 +687,7 @@ class Assemble:
         Region.fluxes.FluxC_old = local_FluxC_old
 
         # local_FluxV = np.zeros(len(local_FluxC))
-        Region.fluxes.FluxV = np.zeros(len(local_FluxC))
+        Region.fluxes.FluxV = np.zeros(len(local_FluxC),dtype=float)
         Region.fluxes.FluxT= (Region.fluxes.FluxC*Region.fluid[self.theEquationName].phi[:Region.mesh.numberOfElements,self.iComponent]
                               +Region.fluxes.FluxC_old*Region.fluid[self.theEquationName].phi_old[:Region.mesh.numberOfElements,self.iComponent])
 

@@ -62,7 +62,7 @@ class Coefficients():
         self.theCConn = Region.mesh.elementNeighbours
         
         ## array containing the number of neighbouring elements for each element in the domain
-        self.theCSize = np.array([int(len(neighbours)) for neighbours in self.theCConn],dtype=int)  # 强制转换为整数
+        self.theCSize = np.array([int(len(neighbours)) for neighbours in self.theCConn],dtype=np.int32)  # 强制转换为整数
                
         theNumberOfElements=int(len(self.theCConn))
 

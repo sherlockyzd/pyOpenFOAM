@@ -707,31 +707,78 @@ class Polymesh():
 
             这种操作在处理网格单元格节点时非常有用，特别是当你需要确保每个单元格的节点列表中不包含重复节点时。
             '''
-        
         ## Upper coefficient indices (owners)
-        # self.upperAnbCoeffIndex=[[] for i in range(0,self.numberOfInteriorFaces)]
-        self.upperAnbCoeffIndex = np.empty(self.numberOfInteriorFaces, dtype=object)
-        ## Lower coefficient indices (owners)
-        # self.lowerAnbCoeffIndex=[[] for i in range(0,self.numberOfInteriorFaces)]
-        self.lowerAnbCoeffIndex = np.empty(self.numberOfInteriorFaces, dtype=object)
-        for i in range(self.numberOfInteriorFaces):
-            self.upperAnbCoeffIndex[i] = []
-            self.lowerAnbCoeffIndex[i] = []
+        # # self.upperAnbCoeffIndex=[[] for i in range(0,self.numberOfInteriorFaces)]
+        # self.upperAnbCoeffIndex = np.empty(self.numberOfInteriorFaces, dtype=object)
+        # ## Lower coefficient indices (owners)
+        # # self.lowerAnbCoeffIndex=[[] for i in range(0,self.numberOfInteriorFaces)]
+        # self.lowerAnbCoeffIndex = np.empty(self.numberOfInteriorFaces, dtype=object)
+        # for i in range(self.numberOfInteriorFaces):
+        #     self.upperAnbCoeffIndex[i] = []
+        #     self.lowerAnbCoeffIndex[i] = []
+
+        # for iElement in range(self.numberOfElements):
+        #     ## Element number from 1 to numberOfElements + 1
+        #     iNb=0
+        #     for faceIndex in self.elementFaces[iElement]:
+        #         #skip if it is a boundary face
+        #         if faceIndex > self.numberOfInteriorFaces-1:
+        #             continue
+        #         own = self.owners[faceIndex]
+        #         nei = self.neighbours[faceIndex]
+        #         if iElement == own:
+        #             self.upperAnbCoeffIndex[faceIndex] = iNb
+        #         elif iElement == nei:
+        #             self.lowerAnbCoeffIndex[faceIndex] = iNb
+        #         iNb += 1
+        """
+        初始化并填充 upperAnbCoeffIndex 和 lowerAnbCoeffIndex 数组。
+
+        功能：
+        该段代码用于为每个内部面（interior face）计算其对应于所有者单元（owner cell）和邻居单元（neighbor cell）的 anb 系数索引，并将这些索引存储在 upperAnbCoeffIndex 和 lowerAnbCoeffIndex 数组中。
+
+        具体过程：
+        1. 初始化 upperAnbCoeffIndex 和 lowerAnbCoeffIndex：
+        - 创建长度为内部面数量（numberOfInteriorFaces）的整数数组，初始值为0。
+        2. 对于每个内部面 iFace：
+        a. 获取该面的所有者单元索引 own 和邻居单元索引 nei。
+        b. 处理所有者单元（own）：
+            - 获取所有者单元的邻居单元列表 own_neighbours。
+            - 在 own_neighbours 中找到邻居单元 nei 的索引 nei_in_own_anb_index。
+            - 将该索引存储在 upperAnbCoeffIndex 的第 iFace 个位置。
+        c. 处理邻居单元（nei）：
+            - 获取邻居单元的邻居单元列表 nei_neighbours。
+            - 在 nei_neighbours 中找到所有者单元 own 的索引 own_in_nei_anb_index。
+            - 将该索引存储在 lowerAnbCoeffIndex 的第 iFace 个位置。
+
+        变量说明：
+        - self.upperAnbCoeffIndex：存储每个内部面在所有者单元的 anb 系数数组中的索引。
+        - self.lowerAnbCoeffIndex：存储每个内部面在邻居单元的 anb 系数数组中的索引。
+        - self.numberOfInteriorFaces：内部面的总数量。
+        - self.owners：长度为总面数的数组，存储每个面的所有者单元索引。
+        - self.neighbours：长度为内部面数的数组，存储每个内部面的邻居单元索引。
+        - self.elementNeighbours：列表的列表，存储每个单元的邻居单元索引。
+
+        注意：
+        - 该过程确保在组装全球矩阵时，可以通过 upperAnbCoeffIndex 和 lowerAnbCoeffIndex 快速定位每个内部面对应的 anb 系数在所有者和邻居单元的 anb 数组中的位置。
+        - 这对于非结构化网格尤为重要，因为每个单元的邻居数量可能不同，anb 数组的长度也不同。
+        """
+        self.upperAnbCoeffIndex = np.zeros(self.numberOfInteriorFaces, dtype=np.int32)
+        self.lowerAnbCoeffIndex = np.zeros(self.numberOfInteriorFaces, dtype=np.int32)
+        for iFace in range(self.numberOfInteriorFaces):
+            own = self.owners[iFace]
+            nei = self.neighbours[iFace]
             
-        for iElement in range(self.numberOfElements):
-            ## Element number from 1 to numberOfElements + 1
-            iNb=int(0)
-            for faceIndex in self.elementFaces[iElement]:
-                #skip if it is a boundary face
-                if faceIndex > self.numberOfInteriorFaces-1:
-                    continue
-                own = self.owners[faceIndex]
-                nei = self.neighbours[faceIndex]
-                if iElement == own:
-                    self.upperAnbCoeffIndex[faceIndex] = iNb
-                elif iElement == nei:
-                    self.lowerAnbCoeffIndex[faceIndex] = iNb
-                iNb = iNb +1
+            # For owner cell
+            own_neighbours = self.elementNeighbours[own]
+            nei_in_own_anb_index = own_neighbours.index(nei)
+            self.upperAnbCoeffIndex[iFace] = nei_in_own_anb_index
+            
+            # For neighbour cell
+            nei_neighbours = self.elementNeighbours[nei]
+            own_in_nei_anb_index = nei_neighbours.index(own)
+            self.lowerAnbCoeffIndex[iFace] = own_in_nei_anb_index
+
 
 
     def cfdProcessNodeTopology(self):
@@ -1034,7 +1081,7 @@ class Polymesh():
                 # y = 0.5*((left[2] * right[0]) - (left[0] * right[2]))
                 # z = 0.5*((left[0] * right[1]) - (left[1] * right[0]))
                 # local_Sf=np.array([x,y,z])
-                local_Sf=0.5*np.cross(left, right)#右手系，x 叉乘 y=z，y轴朝上，复制的面在上层，见ParaView，法向量向外，由owner指向neighbour。
+                local_Sf=0.5*np.cross(left, right)#右手系，x 叉乘 y=z，y轴朝上，复制的面在上层，见ParaView，法向量向外，由owner指向neighbour!!!
                 local_area = np.linalg.norm(local_Sf)
                 centroid +=  local_area*local_centroid
                 Sf +=  local_Sf
