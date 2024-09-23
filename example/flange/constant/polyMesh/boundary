@@ -17,25 +17,25 @@ FoamFile
 
 4
 (
-    patch1
+    wall1
     {
         type            wall;
         nFaces          2440;
         startFace       15316;
     }
-    patch2
+    top
     {
         type            wall;
         nFaces          348;
         startFace       17756;
     }
-    patch3
+    wall2
     {
         type            wall;
         nFaces          96;
         startFace       18104;
     }
-    patch4
+    bottom
     {
         type            wall;
         nFaces          384;

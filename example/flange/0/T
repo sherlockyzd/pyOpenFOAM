@@ -20,23 +20,23 @@ internalField   uniform 273;
 
 boundaryField
 {
-    patch1
+    wall1
     {
         type            zeroGradient;
     }
 
-    patch2
+    top
     {
         type            fixedValue;
         value           uniform 273;
     }
 
-    patch3
+    wall2
     {
         type            zeroGradient;
     }
 
-    patch4
+    bottom
     {
         type            fixedValue;
         value           uniform 573;

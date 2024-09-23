@@ -1,5 +1,6 @@
 # import os
 import pyFVM.IO as io
+import pyFVM.Math as mth
 import numpy as np
 
 def cfdSolveEquation(Region,theEquationName, iComponent):
@@ -60,11 +61,11 @@ def cfdSolveAlgebraicSystem(gridLevel,theEquationName,theCoefficients,smoother =
     bc = theCoefficients.bc
     cconn = theCoefficients.theCConn
     dphi = theCoefficients.dphi
-    theNumberOfElements = theCoefficients.NumberOfElements
+    # theNumberOfElements = theCoefficients.NumberOfElements
 
     #    Compute initial residual
-    residualsArray = cfdComputeResidualsArray(theCoefficients)
-    initialResidual = sum(abs(residualsArray))/theNumberOfElements
+    residualsArray = theCoefficients.cfdComputeResidualsArray()
+    initialResidual = mth.cfdResidual(residualsArray)
     finalResidual = initialResidual
 
     if maxIter==0:
@@ -78,8 +79,8 @@ def cfdSolveAlgebraicSystem(gridLevel,theEquationName,theCoefficients,smoother =
             dphi = cfdSolveILU(ac,anb,residualsArray,dc,cconn,dphi)
             theCoefficients.dphi = dphi
             #    Check if termination criterion satisfied
-            residualsArray = cfdComputeResidualsArray(theCoefficients)
-            finalResidual = sum(abs(residualsArray))/theNumberOfElements
+            residualsArray = theCoefficients.cfdComputeResidualsArray()
+            finalResidual = mth.cfdResidual(residualsArray)
             if (finalResidual<relTol*initialResidual) and (finalResidual<tolerance):
                 break
 
@@ -89,8 +90,8 @@ def cfdSolveAlgebraicSystem(gridLevel,theEquationName,theCoefficients,smoother =
             dphi = cfdSolveSOR(ac,anb,bc,cconn,dphi)
             theCoefficients.dphi = dphi
             #    Check if termination criterion satisfied
-            residualsArray = cfdComputeResidualsArray(theCoefficients)
-            finalResidual = sum(abs(residualsArray))/theNumberOfElements
+            residualsArray = theCoefficients.cfdComputeResidualsArray()
+            finalResidual = mth.cfdResidual(residualsArray)
             if (finalResidual<relTol*initialResidual) and (finalResidual<tolerance):
                 break
     #    Store
@@ -134,31 +135,31 @@ def cfdFactorizeILU(ac, anb, cconn):
 
     return dc
 
-def theCoefficients_Matrix_multiplication(ac,anb,cconn,d):
-    theNumberOfElements = len(ac)
-    Ad = np.zeros_like(d)
-    for iElement in range(theNumberOfElements):
-            Ad[iElement] = ac[iElement] * d[iElement]
-            for iLocalNeighbour,neighbor in enumerate(cconn[iElement]):
-                Ad[iElement] += anb[iElement][iLocalNeighbour] * d[neighbor]
-    return Ad
+# def theCoefficients_Matrix_multiplication(ac,anb,cconn,d):
+#     theNumberOfElements = len(ac)
+#     Ad = np.zeros_like(d)
+#     for iElement in range(theNumberOfElements):
+#             Ad[iElement] = ac[iElement] * d[iElement]
+#             for iLocalNeighbour,neighbor in enumerate(cconn[iElement]):
+#                 Ad[iElement] += anb[iElement][iLocalNeighbour] * d[neighbor]
+#     return Ad
 
-def cfdComputeResidualsArray(theCoefficients):
-    ac = theCoefficients.ac
-    anb = theCoefficients.anb
-    # bc = theCoefficients.bc
-    cconn = theCoefficients.theCConn
-    dphi = theCoefficients.dphi
-    Adphi=theCoefficients_Matrix_multiplication(ac,anb,cconn,dphi)
-    residualsArray= theCoefficients.bc-Adphi
-    # theNumberOfElements = theCoefficients.NumberOfElements
-    # residualsArray = np.zeros(theNumberOfElements)
-    # for iElement in range(theNumberOfElements):   
-    #     residualsArray[iElement] = theCoefficients.bc[iElement] - theCoefficients.ac[iElement]*theCoefficients.dphi[iElement]
-    #     for nNeighbour in range(len(theCoefficients.theCConn[iElement])):
-    #         iNeighbour = theCoefficients.theCConn[iElement][nNeighbour]
-    #         residualsArray[iElement] -= theCoefficients.anb[iElement][nNeighbour]*theCoefficients.dphi[iNeighbour]
-    return residualsArray
+# def cfdComputeResidualsArray(theCoefficients):
+#     ac = theCoefficients.ac
+#     anb = theCoefficients.anb
+#     # bc = theCoefficients.bc
+#     cconn = theCoefficients.theCConn
+#     dphi = theCoefficients.dphi
+#     Adphi=theCoefficients_Matrix_multiplication(ac,anb,cconn,dphi)
+#     residualsArray= theCoefficients.bc-Adphi
+#     # theNumberOfElements = theCoefficients.NumberOfElements
+#     # residualsArray = np.zeros(theNumberOfElements)
+#     # for iElement in range(theNumberOfElements):   
+#     #     residualsArray[iElement] = theCoefficients.bc[iElement] - theCoefficients.ac[iElement]*theCoefficients.dphi[iElement]
+#     #     for nNeighbour in range(len(theCoefficients.theCConn[iElement])):
+#     #         iNeighbour = theCoefficients.theCConn[iElement][nNeighbour]
+#     #         residualsArray[iElement] -= theCoefficients.anb[iElement][nNeighbour]*theCoefficients.dphi[iNeighbour]
+#     return residualsArray
 
 def cfdSolveILU(ac, anb, r, dc, cconn, dphi):
     """
@@ -232,100 +233,101 @@ def cfdSolveSOR(ac,anb,bc,cconn,dphi):
 PCG Solver
 -----------------------------------------------------------
 '''
-def assemble_sparse_matrix_coo(ac, anb, cconn):
-    """
-    Assemble the sparse matrix A from ac, anb, and cconn.
-    Args:
-        ac (ndarray): Diagonal elements of the matrix A.
-        anb (list of lists): Off-diagonal neighbor elements of A.
-        cconn (list of lists): Connectivity (indices of neighbors) for each row.
+# def assemble_sparse_matrix_coo(ac, anb, cconn):
+#     """
+#     Assemble the sparse matrix A from ac, anb, and cconn.
+#     Args:
+#         ac (ndarray): Diagonal elements of the matrix A.
+#         anb (list of lists): Off-diagonal neighbor elements of A.
+#         cconn (list of lists): Connectivity (indices of neighbors) for each row.
 
-    Returns:
-        A_sparse (scipy.sparse.csr_matrix): The assembled sparse matrix in CSR format.
-    """
-    numberOfElements = len(ac)
-    data = []
-    row_indices = []
-    col_indices = []
+#     Returns:
+#         A_sparse (scipy.sparse.csr_matrix): The assembled sparse matrix in CSR format.
+#     """
+#     numberOfElements = len(ac)
+#     data = []
+#     row_indices = []
+#     col_indices = []
 
-    # Add diagonal elements
-    for i in range(numberOfElements):
-        data.append(ac[i])
-        row_indices.append(i)
-        col_indices.append(i)
+#     # Add diagonal elements
+#     for i in range(numberOfElements):
+#         data.append(ac[i])
+#         row_indices.append(i)
+#         col_indices.append(i)
 
-    # Add off-diagonal elements
-    for i in range(numberOfElements):
-        neighbors = cconn[i]
-        anb_values = anb[i]
-        for j_, j in enumerate(neighbors):
-            data.append(anb_values[j_])
-            row_indices.append(i)
-            col_indices.append(j)
+#     # Add off-diagonal elements
+#     for i in range(numberOfElements):
+#         neighbors = cconn[i]
+#         anb_values = anb[i]
+#         for j_, j in enumerate(neighbors):
+#             data.append(anb_values[j_])
+#             row_indices.append(i)
+#             col_indices.append(j)
 
-    data=np.array(data)
-    row_indices=np.array(row_indices)
-    col_indices=np.array(col_indices)
-    from scipy.sparse import coo_matrix
-    # Create the sparse matrix in COO format
-    A_coo = coo_matrix((data, (row_indices, col_indices)), shape=(numberOfElements, numberOfElements))
-    # Convert to CSR format for efficient arithmetic and solving
-    A_sparse = A_coo.tocsr()
-    return A_sparse
+#     data=np.array(data)
+#     row_indices=np.array(row_indices)
+#     col_indices=np.array(col_indices)
+#     from scipy.sparse import coo_matrix
+#     # Create the sparse matrix in COO format
+#     A_coo = coo_matrix((data, (row_indices, col_indices)), shape=(numberOfElements, numberOfElements))
+#     # Convert to CSR format for efficient arithmetic and solving
+#     A_sparse = A_coo.tocsr()
+#     return A_sparse
 
-def assemble_sparse_matrix_csr(ac, anb, cconn):
-    """
-    使用 Numpy 数组将 ac, anb 和 cconn 组装成 CSR 格式的稀疏矩阵。
+# def assemble_sparse_matrix_csr(ac, anb, cconn):
+#     """
+#     使用 Numpy 数组将 ac, anb 和 cconn 组装成 CSR 格式的稀疏矩阵。
 
-    参数：
-        ac (ndarray): 矩阵 A 的对角元素。
-        anb (list of lists): 矩阵 A 的非对角（邻接）元素。
-        cconn (list of lists): 每一行的邻接（邻居的索引）。
+#     参数：
+#         ac (ndarray): 矩阵 A 的对角元素。
+#         anb (list of lists): 矩阵 A 的非对角（邻接）元素。
+#         cconn (list of lists): 每一行的邻接（邻居的索引）。
 
-    返回：
-        data (ndarray): 矩阵的非零值。
-        indices (ndarray): 非零值对应的列索引。
-        indptr (ndarray): 每一行在 data 和 indices 中的起始位置索引。
-    """
-    numberOfElements = len(ac)
-    data = []
-    indices = []
-    indptr = [0]
-    for i in range(numberOfElements):
-        # 添加对角元素
-        data.append(ac[i])
-        indices.append(i)
-        # 添加非对角元素
-        neighbors = cconn[i]
-        anb_values = anb[i]
-        for j_, j in enumerate(neighbors):
-            data.append(anb_values[j_])
-            indices.append(j)
-        # indptr 记录每一行的起始位置
-        indptr.append(len(data))
-    # 将列表转换为 Numpy 数组
-    data = np.array(data)
-    indices = np.array(indices)
-    indptr = np.array(indptr)
-    from scipy.sparse import csr_matrix
-    A_sparse = csr_matrix((data, indices, indptr), shape=(len(ac), len(ac)))
-    return A_sparse
+#     返回：
+#         data (ndarray): 矩阵的非零值。
+#         indices (ndarray): 非零值对应的列索引。
+#         indptr (ndarray): 每一行在 data 和 indices 中的起始位置索引。
+#     """
+#     numberOfElements = len(ac)
+#     data = []
+#     indices = []
+#     indptr = [0]
+#     for i in range(numberOfElements):
+#         # 添加对角元素
+#         data.append(ac[i])
+#         indices.append(i)
+#         # 添加非对角元素
+#         neighbors = cconn[i]
+#         anb_values = anb[i]
+#         for j_, j in enumerate(neighbors):
+#             data.append(anb_values[j_])
+#             indices.append(j)
+#         # indptr 记录每一行的起始位置
+#         indptr.append(len(data))
+#     # 将列表转换为 Numpy 数组
+#     data = np.array(data)
+#     indices = np.array(indices)
+#     indptr = np.array(indptr)
+#     from scipy.sparse import csr_matrix
+#     A_sparse = csr_matrix((data, indices, indptr), shape=(len(ac), len(ac)))
+#     return A_sparse
 
 # 更新PCG求解器以支持多种预处理器
 def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'):
-    from scipy.sparse.linalg import cg,spilu,LinearOperator
-    r = cfdComputeResidualsArray(theCoefficients)
-    initRes = np.linalg.norm(r, ord=2)
+    A_sparse=theCoefficients.assemble_sparse_matrix()
+    r = theCoefficients.cfdComputeResidualsArray()
+    initRes = mth.cfdResidual(r)
     if initRes < tolerance or maxIter == 0:
         return initRes, initRes
     
-    ac = theCoefficients.ac
-    anb = theCoefficients.anb
-    cconn = theCoefficients.theCConn
+    # ac = theCoefficients.ac
+    # anb = theCoefficients.anb
+    # cconn = theCoefficients.theCConn
     dphi = np.copy(theCoefficients.dphi)  # Initial guess
     bc = theCoefficients.bc
-    A_sparse = assemble_sparse_matrix_csr(ac, anb, cconn)
-        # Setup preconditioner
+    
+    from scipy.sparse.linalg import cg,spilu,LinearOperator
+    # Setup preconditioner
     if preconditioner == 'ILU':
         # Compute incomplete LU factorization
         ilu = spilu(A_sparse)
@@ -355,14 +357,17 @@ def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'
         print(f"在 {info} 次迭代后达到设定的收敛容限")
     else:
         print("求解未能收敛")
-    finalRes = np.linalg.norm(bc - A_sparse @ dphi, ord=2)
+    finalRes = mth.cfdResidual(bc - A_sparse @ dphi)
 
     # 将最终解更新到 theCoefficients.dphi 中
     theCoefficients.dphi = dphi
     return initRes, finalRes
 
-def preconditioner_solve(r,ac,anb,cconn,preconditioner):
+def preconditioner_solve(r,theCoefficients,preconditioner):
     #Y. Ye, H. Guo, B. Wang, P. Wang, D. Chen and F. Li, "Coupled Incomplete Cholesky and Jacobi Preconditioned Conjugate Gradient on the New Generation of Sunway Many-Core Architecture," in IEEE Transactions on Computers, vol. 72, no. 11, pp. 3326-3339, 1 Nov. 2023, https://doi.org/10.1109/TC.2023.3296884.
+    ac = theCoefficients.ac
+    anb = theCoefficients.anb
+    cconn = theCoefficients.theCConn
     if preconditioner == 'DIC':
         dc = cfdFactorizeDIC(ac, anb, cconn)
         z  = r*dc*dc
@@ -371,7 +376,7 @@ def preconditioner_solve(r,ac,anb,cconn,preconditioner):
         dc = cfdFactorizeILU(ac, anb, cconn)
         z = cfdSolveILU(ac, anb, r, dc, cconn, np.zeros_like(r))
     elif preconditioner == 'Jacobi':
-        z = jacobiPreconditioner(ac, anb, cconn, r)
+        z = jacobiPreconditioner(theCoefficients, r)
     else:
         raise ValueError(f"未知的预处理器: {preconditioner}")
     return z
@@ -383,8 +388,8 @@ def cfdSolvePCG1(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU
     cconn = theCoefficients.theCConn
     dphi = np.copy(theCoefficients.dphi)  # Initial guess
     # Compute initial residual
-    r = cfdComputeResidualsArray(theCoefficients)
-    initRes = np.linalg.norm(r, ord=2)
+    r = theCoefficients.cfdComputeResidualsArray()
+    initRes = mth.cfdResidual(r)
     if initRes < tolerance or maxIter == 0:
         return initRes, initRes
 
@@ -395,7 +400,7 @@ def cfdSolvePCG1(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU
 
     for iter in range(maxIter):
         # Compute Ad = A * d
-        Ad=theCoefficients_Matrix_multiplication(ac,anb,cconn,d)
+        Ad=theCoefficients.theCoefficients_Matrix_multiplication(d)
 
         # Calculate step size alpha
         alpha = rz_old / (np.dot(d, Ad)+1e-20)
@@ -407,7 +412,7 @@ def cfdSolvePCG1(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU
         r -= alpha * Ad
 
         # Check for convergence
-        finalRes = np.linalg.norm(r, ord=2)
+        finalRes = mth.cfdResidual(r)
         if finalRes < max(relTol * initRes, tolerance):
             break
         # Apply the preconditioner
@@ -428,17 +433,17 @@ def cfdSolvePCG1(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU
     return initRes, finalRes
 
 def cfdSolvePCG0(theCoefficients, maxIter, tolerance, relTol, preconditioner='ILU'):
-    ac = theCoefficients.ac
-    anb = theCoefficients.anb
-    cconn = theCoefficients.theCConn
+    # ac = theCoefficients.ac
+    # anb = theCoefficients.anb
+    # cconn = theCoefficients.theCConn
     dphi = theCoefficients.dphi
-    theNumberOfElements = theCoefficients.NumberOfElements
+    # theNumberOfElements = theCoefficients.NumberOfElements
     # 初始残差计算
-    r = cfdComputeResidualsArray(theCoefficients)
-    initRes = sum(abs(r)) / theNumberOfElements
+    r = theCoefficients.cfdComputeResidualsArray()
+    initRes = mth.cfdResidual(r)
     # 选择预处理器并初始化 z
     #Y. Ye, H. Guo, B. Wang, P. Wang, D. Chen and F. Li, "Coupled Incomplete Cholesky and Jacobi Preconditioned Conjugate Gradient on the New Generation of Sunway Many-Core Architecture," in IEEE Transactions on Computers, vol. 72, no. 11, pp. 3326-3339, 1 Nov. 2023, https://doi.org/10.1109/TC.2023.3296884.
-    z=preconditioner_solve(r,ac,anb,cconn,preconditioner)
+    z=preconditioner_solve(r,theCoefficients,preconditioner)
     p = np.copy(z)
     rz_old = np.dot(r, z)
     finalRes = initRes
@@ -447,16 +452,16 @@ def cfdSolvePCG0(theCoefficients, maxIter, tolerance, relTol, preconditioner='IL
 
     for k in range(maxIter):
         # 矩阵向量乘积 A * p
-        Ap = theCoefficients_Matrix_multiplication(ac,anb,cconn,p)
+        Ap = theCoefficients.theCoefficients_Matrix_multiplication(p)
         alpha = rz_old / (np.dot(p, Ap)+1e-20)
         dphi = dphi + alpha * p
         r = r - alpha * Ap
 
-        finalRes = sum(abs(r)) / theNumberOfElements
+        finalRes = mth.cfdResidual(r)
         if finalRes < max(relTol * initRes, tolerance):
             break
         # 预处理应用
-        z=preconditioner_solve(r,ac,anb,cconn,preconditioner)
+        z=preconditioner_solve(r,theCoefficients,preconditioner)
         rz_new = np.dot(r, z)
         beta = rz_new / rz_old
         p = z + beta * p
@@ -468,7 +473,7 @@ def cfdSolvePCG0(theCoefficients, maxIter, tolerance, relTol, preconditioner='IL
 
 
 
-def jacobiPreconditioner(ac, anb, cconn, r, max_iter=10, tol=1e-6):
+def jacobiPreconditioner(theCoefficients, r, max_iter=10, tol=1e-6):
     """
     使用ac, anb和cconn数据结构进行Jacobi预处理。
     Args:
@@ -483,7 +488,7 @@ def jacobiPreconditioner(ac, anb, cconn, r, max_iter=10, tol=1e-6):
         z (ndarray): 经过Jacobi预处理后的向量。
     """
     # 提取对角元素的倒数
-    D_inv = 1.0 / ac
+    D_inv = 1.0 / theCoefficients.ac
     
     # 初始计算 z_0 = D^-1 * r
     z = D_inv * r
@@ -491,7 +496,7 @@ def jacobiPreconditioner(ac, anb, cconn, r, max_iter=10, tol=1e-6):
     # Jacobi 迭代更新
     for _ in range(max_iter):
         # 计算 Az_k
-        Az =theCoefficients_Matrix_multiplication(ac,anb,cconn,z)
+        Az =theCoefficients.theCoefficients_Matrix_multiplication(z)
         
         # 更新 z_k+1
         z_new = z + D_inv * (r - Az)
@@ -575,15 +580,20 @@ def cfdSolveDIC(ac, anb, r, dc, cconn, dphi):
 
 
 
-def cfdSolveILU_orig(ac,anb,bc,dc,rc,cconn,dphi):
+def cfdSolveILU_orig(theCoefficients,dc,rc):
 #   ==========================================================================
 #    Routine Description:
 #      Solve Incomplete Lower Upper system
 #   --------------------------------------------------------------------------
 #    ILU Iterate
-    numberOfElements = len(ac)
+    # ac = theCoefficients.ac
+    anb = theCoefficients.anb
+    cconn = theCoefficients.theCConn
+    bc = theCoefficients.bc
+    numberOfElements=theCoefficients.NumberOfElements
+    dphi = np.copy(theCoefficients.dphi)
     #  Update Residuals array
-    rc = bc - theCoefficients_Matrix_multiplication(ac, anb, cconn, dphi)
+    rc = bc - theCoefficients.theCoefficients_Matrix_multiplication(dphi)
     # for iElement in range(numberOfElements):
     #     conn = cconn[iElement]
     #     res = -ac[iElement]*dphi[iElement] + bc[iElement]

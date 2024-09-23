@@ -111,3 +111,16 @@ def cfdScalarList(*args):
 
         # # 初始化一个长度为3的列表，所有元素为1.0
         # scalar_list2 = cfd_scalar_list(3, 1.0)
+
+def cfdResidual(rc, method='norm'):
+    if method == 'RMS':
+        rc_res = np.sqrt(np.mean(rc ** 2))
+    elif method == 'norm':
+        rc_res = np.linalg.norm(rc)
+    elif method == 'mean':
+        rc_res = np.mean(np.abs(rc))
+    elif method == 'max':
+        rc_res = np.max(np.abs(rc))
+    elif method =='sum':
+        rc_res = np.sum(np.abs(rc))
+    return rc_res
