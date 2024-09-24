@@ -86,7 +86,7 @@ def  cfdInterpolateFromElementsToInteriorFaces(Region,theInterpolationScheme,fie
             mdot_f=args[0]
             pos = (mdot_f > 0).astype(int)[:numberOfInteriorFaces,:]
             # 插值： phi_f = pos * phi_O + (1 - pos) * phi_N
-            phi_f[:numberOfInteriorFaces,:] = pos[:, None] * field[owners, :] + (1 - pos)[:, None] * field[neighbours, :]
+            phi_f[:numberOfInteriorFaces,:] = pos * field[owners, :] + (1 - pos) * field[neighbours, :]
             # for iComponent in range(theNumberOfComponents):
             #     phi_f[0:numberOfInteriorFaces,iComponent] = field[owners,iComponent]*pos + field[neighbours,iComponent]*(1 - pos)
         else:
@@ -158,7 +158,7 @@ def cfdInterpolateGradientsFromElementsToInteriorFaces(Region,gradPhi,scheme,*ar
         else:
             io.cfdError('No phi provided for Gauss linear corrected interpolation')
 
-        local_avg_grad = (np.einsum('ij,ij->i', grad_f, e_CF))[:, None] * e_CF
+        local_avg_grad = mth.cfdDot(grad_f, e_CF)[:, None] * e_CF
    
         # Corrected gradient
         grad_f += (local_grad- local_avg_grad)

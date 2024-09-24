@@ -56,6 +56,32 @@ class Field():
         self.name = fieldName
         self.type = fieldType
         self.dimensions=[]
+        '''
+        在 OpenFOAM 中，`dimensions` 用于定义物理量的维度。每个物理量的维度是一个具有七个分量的数组，分别表示它在以下七个基础单位下的幂次：
+        1. 质量（mass）
+        2. 长度（length）
+        3. 时间（time）
+        4. 温度（temperature）
+        5. 电流（electric current）
+        6. 物质的量（amount of substance）
+        7. 发光强度（luminous intensity）
+        这些单位遵循国际单位制（SI）。`dimensions` 主要用于确保单位的正确性，并帮助 OpenFOAM 在计算过程中执行单位检查。
+        dimensions [M L T Θ I N J] 每个字母表示一个单位的幂次，按照如下解释：
+        - `M`: 质量，单位 kg
+        - `L`: 长度，单位 m
+        - `T`: 时间，单位 s
+        - `Θ`: 温度，单位 K
+        - `I`: 电流，单位 A
+        - `N`: 物质的量，单位 mol
+        - `J`: 发光强度，单位 cd
+        在 OpenFOAM 中，物理量的维度通常写在文件开头。
+        速度的维度（单位 m/s）dimensions [0 1 -1 0 0 0 0];
+        压力的维度（单位 N/m² 或者 kg/(m·s²)）dimensions [1 -1 -2 0 0 0 0];
+        体积：`[0 3 0 0 0 0 0]` （m³）
+        力：`[1 1 -2 0 0 0 0]` （N 或 kg·m/s²）
+        密度：`[1 -3 0 0 0 0 0]` （kg/m³）
+        通过这种方式，OpenFOAM 可以确保所有物理量的单位在计算中保持一致。如果在模拟过程中出现单位不匹配的问题，OpenFOAM 将给出错误信息。
+        '''
         self.boundaryPatchRef={}
         
         if self.type == 'volScalarField':
@@ -543,13 +569,14 @@ class Field():
         if self.name=='U':
             theNumberOfElements = Region.coefficients.NumberOfElements
             # Get fields
-            DU0 = np.squeeze(Region.fluid['DU0'].phi)[0:theNumberOfElements]
-            DU1 = np.squeeze(Region.fluid['DU1'].phi)[0:theNumberOfElements]
-            DU2 = np.squeeze(Region.fluid['DU2'].phi)[0:theNumberOfElements]
+            # DU0 = np.squeeze(Region.fluid['DU0'].phi)[0:theNumberOfElements]
+            # DU1 = np.squeeze(Region.fluid['DU1'].phi)[0:theNumberOfElements]
+            # DU2 = np.squeeze(Region.fluid['DU2'].phi)[0:theNumberOfElements]
+            DU  =Region.fluid['DU'].phi[:theNumberOfElements,:]
             ppGrad = np.squeeze(Region.fluid['pprime'].phiGrad.phiGrad)[0:theNumberOfElements,:]
             #  Calculate Dc*gradP
             # DUPPGRAD = np.asarray([DU0*ppGrad[:,1],DU1*ppGrad[:,2],DU2*ppGrad[:,2]]).T
-            DUPPGRAD = np.column_stack((DU0*ppGrad[:,1],DU1*ppGrad[:,2],DU2*ppGrad[:,2]))
+            DUPPGRAD = DU*ppGrad
             # Correct velocity
             self.phi[0:theNumberOfElements,:] -= DUPPGRAD
             for iComponent in range(3):

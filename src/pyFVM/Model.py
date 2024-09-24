@@ -36,10 +36,6 @@ class Model():
             self.equations['p'].setTerms(['massDivergenceTerm'])
             if not Region.STEADY_STATE_RUN:
                 self.equations['p'].terms.append('Transient')
-            # if not Region.STEADY_STATE_RUN:
-            #     self.equations['p'].setTerms(['Transient', 'massDivergenceTerm'])
-            # else:
-            #     self.equations['p'].setTerms(['massDivergenceTerm'])
             Region.fluid['pprime']=field.Field(Region,'pprime','volScalarField')
             Region.fluid['pprime'].boundaryPatchRef=Region.fluid['p'].boundaryPatchRef
             for iBPatch, values in Region.fluid['pprime'].boundaryPatchRef.items():
@@ -47,11 +43,10 @@ class Model():
                     Region.fluid['pprime'].boundaryPatchRef[iBPatch]['value']=[0.0]
             Region.fluid['p'].phiGrad=grad.Gradient(Region,'p')
             Region.fluid['pprime'].phiGrad=grad.Gradient(Region,'pprime')
-            for i in range(3): 
-                self.DefineDUfield(Region,'DU',i)
-                self.DefineDUfield(Region,'DUT',i)
-            Region.fluid['DUSf']=field.Field(Region,'DUSf','surfaceVectorField')
-            Region.fluid['DUEf']=field.Field(Region,'DUEf','surfaceVectorField')
+            self.DefineDUfield(Region,'DU')
+            self.DefineDUfield(Region,'DUT')
+            self.DefineDUSffield(Region,'DUSf')
+            self.DefineDUSffield(Region,'DUEf')
 
     def DefineEnergyEquation(self,Region):
         initCasePath=Region.caseDirectoryPath + os.sep+'0'
@@ -104,14 +99,7 @@ class Model():
             for iterm in Region.dictionaries.fvSchemes['laplacianSchemes']:
                 if io.contains_term(iterm,'default'):
                     self.equations['U'].terms.append('Diffusion')
-                #     parts=io.term_split(iterm)
-                #     terms_to_remove = ['laplacian', 'U']
-                #     str_gammas=io.remove_terms(parts,terms_to_remove)
-                # try:
-                #     self.equations['U'].gamma=Region.fluid[str_gammas].phi
-                # except AttributeError:
-                #     self.equations['U'].gamma=Region.fluid['k'].phi/Region.fluid['Cp'].phi
-                #     print("self.equations['U'].gamma information doesn't exist in the FoamDictionaries object")
+
 
             if os.path.isfile(initCasePath+ os.sep+'p'):
                 self.equations['U'].terms.append('PressureGradient')
@@ -129,11 +117,18 @@ class Model():
     def DefineScalarTransportEquation(self,Region):
         pass
 
-    def DefineDUfield(self,Region,name,iComponent):
-        Name=name+str(iComponent)
-        Region.fluid[Name]=field.Field(Region,Name,'volScalarField')
-        # Region.fluid[Name].dimensions=[0,0,0,0,0,0,0]
-        # Region.fluid['DU'+iComponent].initializeMdotFromU(Region)
+    def DefineDUfield(self,Region,Name,*args):
+        # Name=name+str(iComponent)
+        Region.fluid[Name]=field.Field(Region,Name,'volVectorField')
+        Region.fluid[Name].dimensions=[-1,3,1,0,0,0,0]
+        # Region.fluid[Name].boundaryPatchRef=Region.fluid['U'].boundaryPatchRef
+
+
+    def DefineDUSffield(self,Region,Name,*args):
+        Region.fluid[Name]=field.Field(Region,Name,'surfaceVectorField')
+        Region.fluid[Name].dimensions=[-1,5,1,0,0,0,0]
+        # Region.fluid[Name].boundaryPatchRef=Region.fluid['U'].boundaryPatchRef
+
 
     def DefineMdot_f(self,Region):
         Region.fluid['mdot_f']=field.Field(Region,'mdot_f','surfaceScalarField')

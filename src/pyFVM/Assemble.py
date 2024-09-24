@@ -109,17 +109,19 @@ class Assemble:
         """
         theNumberOfElements=Region.mesh.numberOfElements
         #   Get coefficients
-        theDUField  = 'DU'+str(iComponent)
-        theDUTField = 'DUT'+str(iComponent)
-        # if strcmp(cfdGetAlgorithm,'SIMPLE')    
-        Region.fluid[theDUField].phi[0:theNumberOfElements,0] = Region.mesh.elementVolumes/Region.coefficients.ac
-        Region.fluid[theDUTField].phi[0:theNumberOfElements,0]= Region.coefficients.ac_old/Region.coefficients.ac
+        # theDUField  = 'DU'+str(iComponent)
+        # theDUTField = 'DUT'+str(iComponent)
+        # if strcmp(cfdGetAlgorithm,'SIMPLE')
+        Region.fluid['DU'].phi[0:theNumberOfElements,iComponent] = Region.mesh.elementVolumes/Region.coefficients.ac 
+        Region.fluid['DUT'].phi[0:theNumberOfElements,iComponent]= Region.coefficients.ac_old/Region.coefficients.ac
+        # Region.fluid[theDUField].phi[0:theNumberOfElements,0] = Region.mesh.elementVolumes/Region.coefficients.ac
+        # Region.fluid[theDUTField].phi[0:theNumberOfElements,0]= Region.coefficients.ac_old/Region.coefficients.ac
         # elif(strcmp(theAlgorithm,'PIMPLE'))
             #   BODGE
         #   Store in data base
         #   Update at cfdBoundary patches
-        Region.fluid[theDUField].updateFieldForAllBoundaryPatches(Region)
-        Region.fluid[theDUTField].updateFieldForAllBoundaryPatches(Region)
+        Region.fluid['DU'].updateFieldForAllBoundaryPatches(Region)
+        Region.fluid['DUT'].updateFieldForAllBoundaryPatches(Region)
 
     def cfdAssembleIntoGlobalMatrixElementFluxes(self,Region,*args):
         """
@@ -192,9 +194,9 @@ class Assemble:
         self.cfdPreAssembleEquation(Region)
         #   Get DU field
         theNumberOfInteriorFaces = Region.mesh.numberOfInteriorFaces
-        DU0_f = interp.cfdInterpolateFromElementsToInteriorFaces(Region,'linear',tools.cfdGetSubArrayForInterior('DU0',Region))
-        DU1_f = interp.cfdInterpolateFromElementsToInteriorFaces(Region,'linear', tools.cfdGetSubArrayForInterior('DU1',Region))
-        DU2_f = interp.cfdInterpolateFromElementsToInteriorFaces(Region,'linear', tools.cfdGetSubArrayForInterior('DU2',Region))    
+        DUf = interp.cfdInterpolateFromElementsToInteriorFaces(Region,'linear',tools.cfdGetSubArrayForInterior('DU',Region))
+        # DU1_f = interp.cfdInterpolateFromElementsToInteriorFaces(Region,'linear', tools.cfdGetSubArrayForInterior('DU1',Region))
+        # DU2_f = interp.cfdInterpolateFromElementsToInteriorFaces(Region,'linear', tools.cfdGetSubArrayForInterior('DU2',Region))    
         #   Assemble Coefficients
         #   assemble term I
         #       rho_f [v]_f.Sf
@@ -204,7 +206,8 @@ class Assemble:
         Sf = Region.mesh.faceSf[0:theNumberOfInteriorFaces,:]
         #   Calculated info
         e = Region.mesh.faceCFn[0:theNumberOfInteriorFaces,:]
-        DUSf = np.column_stack((np.squeeze(DU0_f)*Sf[:,0],np.squeeze(DU1_f)*Sf[:,1],np.squeeze(DU2_f)*Sf[:,2]))
+        DUSf=DUf*Sf
+        # DUSf = np.column_stack((np.squeeze(DU0_f)*Sf[:,0],np.squeeze(DU1_f)*Sf[:,1],np.squeeze(DU2_f)*Sf[:,2]))
         Region.fluid['DUSf'].phi[0:theNumberOfInteriorFaces,:]=DUSf
         magDUSf = mth.cfdMag(DUSf)
         if Region.mesh.OrthogonalCorrectionMethod=='Minimum':
@@ -227,10 +230,11 @@ class Assemble:
             iBFaces=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBFaces']
             CF_b = Region.mesh.faceCF[iBFaces]
             e = mth.cfdUnit(CF_b)
-            DU0_b = tools.cfdGetSubArrayForBoundaryPatch('DU0', iBPatch,Region)
-            DU1_b = tools.cfdGetSubArrayForBoundaryPatch('DU1', iBPatch,Region)
-            DU2_b = tools.cfdGetSubArrayForBoundaryPatch('DU2', iBPatch,Region)
-            DUSb = np.column_stack((DU0_b*Sf_b[:,1],DU1_b*Sf_b[:,2],DU2_b*Sf_b[:,2]))
+            DUb = tools.cfdGetSubArrayForBoundaryPatch('DU', iBPatch,Region)
+            # DU1_b = tools.cfdGetSubArrayForBoundaryPatch('DU1', iBPatch,Region)
+            # DU2_b = tools.cfdGetSubArrayForBoundaryPatch('DU2', iBPatch,Region)
+            # DUSb = np.column_stack((DU0_b*Sf_b[:,1],DU1_b*Sf_b[:,2],DU2_b*Sf_b[:,2]))
+            DUSb=DUb*Sf_b
             Region.fluid['DUSf'].phi[iBFaces,:]=DUSb
             magSUDb = mth.cfdMag(DUSb)
             if Region.mesh.OrthogonalCorrectionMethod=='Minimum':
@@ -579,9 +583,9 @@ class Assemble:
         if scheme=='linearUpwind':
             #   Get first computed mdot_f
             mdot_f_prev = tools.cfdGetSubArrayForInterior('mdot_f',Region)
-            rho_f = interp.cfdInterpolateFromElementsToInteriorFaces(Region,scheme, rho, mdot_f_prev)
+            rho_f = np.squeeze(interp.cfdInterpolateFromElementsToInteriorFaces(Region,scheme, rho, mdot_f_prev))
         else:
-            rho_f = interp.cfdInterpolateFromElementsToInteriorFaces(Region,scheme, rho)
+            rho_f = np.squeeze(interp.cfdInterpolateFromElementsToInteriorFaces(Region,scheme, rho))
 
         #   Get velocity field and interpolate to faces
         U_bar_f = interp.cfdInterpolateFromElementsToInteriorFaces(Region,'linear', tools.cfdGetSubArrayForInterior('U',Region))
