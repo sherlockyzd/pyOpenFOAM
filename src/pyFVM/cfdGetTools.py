@@ -28,7 +28,7 @@ def cfdRhieChowValue(fieldName,Region):
     # % Get pressure field and interpolate to faces
     phi = cfdGetSubArrayForInterior(fieldName,Region)
     local_grad_cfdMag_f = np.squeeze((phi[neighbours_f]-phi[owners_f]))/dcfdMag
-    RhieChow_grad=(local_grad_cfdMag_f-(grad_f*e_CF).sum(1))[:,None]*e_CF
+    RhieChow_grad=(local_grad_cfdMag_f-mth.cfdDot(grad_f,e_CF))[:,None]*e_CF
 
     return  RhieChow_grad
 

@@ -369,7 +369,7 @@ class Field():
             # Get Vector Field at Boundary
             # # Update field by imposing the parallel to wall component of velocity. This
             # # is done by removing the normal component
-            phi_normal = mth.cfdDot(self.phi[owners_b,:]*n)
+            phi_normal = mth.cfdDot(self.phi[owners_b,:],n)
             self.phi[iBElements,iComponent] -=  phi_normal*n[:,iComponent]
         else:
             self.phi[iBElements] =  self.phi[owners_b]
@@ -531,7 +531,7 @@ class Field():
             n=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['facen']
             # np.column_stack((self.Sb[:,0]/self.normSb,self.Sb[:,1]/self.normSb,self.Sb[:,2]/self.normSb))
             #perform elementwise multiplication of owner's values with boundary face normals
-            U_normal_cfdMag=mth.cfdDot(self.phi[owners_b]*n)
+            U_normal_cfdMag=mth.cfdDot(self.phi[owners_b],n)
             #seems to do the same thing a the above line without the .sum(1)
             U_normal=np.column_stack((U_normal_cfdMag*n[:,0],U_normal_cfdMag*n[:,1],U_normal_cfdMag*n[:,2]))
             self.phi[iBElements]=self.phi[owners_b]-U_normal

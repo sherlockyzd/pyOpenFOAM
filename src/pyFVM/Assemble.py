@@ -204,17 +204,17 @@ class Assemble:
         Sf = Region.mesh.faceSf[0:theNumberOfInteriorFaces,:]
         #   Calculated info
         e = Region.mesh.faceCFn[0:theNumberOfInteriorFaces,:]
-        DUSf = np.column_stack((DU0_f*Sf[:,0],DU1_f*Sf[:,1],DU2_f*Sf[:,2]))
+        DUSf = np.column_stack((np.squeeze(DU0_f)*Sf[:,0],np.squeeze(DU1_f)*Sf[:,1],np.squeeze(DU2_f)*Sf[:,2]))
         Region.fluid['DUSf'].phi[0:theNumberOfInteriorFaces,:]=DUSf
         magDUSf = mth.cfdMag(DUSf)
         if Region.mesh.OrthogonalCorrectionMethod=='Minimum':
-            Region.fluid['DUEf'].phi[0:theNumberOfInteriorFaces,:] = (DUSf*e).sum(1)[:,None]*e
+            Region.fluid['DUEf'].phi[0:theNumberOfInteriorFaces,:] = mth.cfdDot(DUSf,e)[:,None]*e
         elif Region.mesh.OrthogonalCorrectionMethod=='Orthogonal':
             Region.fluid['DUEf'].phi[0:theNumberOfInteriorFaces,:] =magDUSf[:,None]*e
         elif Region.mesh.OrthogonalCorrectionMethod=='OverRelaxed':
             eDUSf = mth.cfdUnit(DUSf)
             epsilon = 1e-10  # 定义一个小的正常数
-            Region.fluid['DUEf'].phi[0:theNumberOfInteriorFaces,:] =(magDUSf/((eDUSf*e + epsilon).sum(1)))[:,None]*e
+            Region.fluid['DUEf'].phi[0:theNumberOfInteriorFaces,:] =(magDUSf/(mth.cfdDot(eDUSf,e)+ epsilon))[:,None]*e
         else:
             io.cfdError('Region.mesh.OrthogonalCorrectionMethod not exist')
 
@@ -234,13 +234,13 @@ class Assemble:
             Region.fluid['DUSf'].phi[iBFaces,:]=DUSb
             magSUDb = mth.cfdMag(DUSb)
             if Region.mesh.OrthogonalCorrectionMethod=='Minimum':
-                Region.fluid['DUEf'].phi[iBFaces,:] = (DUSb*e).sum(1)[:,None]*e
+                Region.fluid['DUEf'].phi[iBFaces,:] = mth.cfdDot(DUSb,e)[:,None]*e
             elif Region.mesh.OrthogonalCorrectionMethod=='Orthogonal':
                 Region.fluid['DUEf'].phi[iBFaces,:] =magSUDb[:,None]*e
             elif Region.mesh.OrthogonalCorrectionMethod=='OverRelaxed':
                 epsilon = 1e-10  # 定义一个小的正常数
                 eDUSb =  mth.cfdUnit(DUSb)
-                Region.fluid['DUEf'].phi[iBFaces,:] =(magSUDb/((eDUSb*e + epsilon).sum(1)))[:,None]*e
+                Region.fluid['DUEf'].phi[iBFaces,:] =(magSUDb/(mth.cfdDot(eDUSb,e )+ epsilon))[:,None]*e
             else:
                 io.cfdError('Region.mesh.OrthogonalCorrectionMethod not exist')
         # DUEb = [magSUDb./dot(e',eDUSb')'.*e(:,1),magSUDb./dot(e',eDUSb')'.*e(:,2),magSUDb./dot(e',eDUSb')'.*e(:,3)];
@@ -418,9 +418,9 @@ class Assemble:
         #   assemble RHIE-CHOW Interpolation Term I
         #  ---------------------------------------------------
         #   ONLY assemble term I
-        U_b = (Sf_b*U_b).sum(1)
-        local_FluxVb = rho_b*U_b
-        local_FluxVb += rho_b*((p_grad_b-p_grad_C)*Region.fluid['DUSf'].phi[iBFaces,:]).sum(1)
+        flux = mth.cfdDot(Sf_b,U_b)
+        local_FluxVb = rho_b*flux
+        local_FluxVb += rho_b*mth.cfdDot((p_grad_b-p_grad_C),Region.fluid['DUSf'].phi[iBFaces,:])
         #   Total flux
         #   local_FluxTb = local_FluxCb.*p(owners_b) + local_FluxFb.*p_b + local_FluxVb;
         #   Update global fluxes
@@ -500,13 +500,13 @@ class Assemble:
         local_FluxVb =np.zeros(theNumberOfBFaces)
         #   Assemble term I
         # U_bar_b = (U_b*Sf_b).sum(1)
-        local_FluxVb += rho_b*(U_b*Sf_b).sum(1)
+        local_FluxVb += rho_b*mth.cfdDot(U_b,Sf_b)
         #   Assemble term II and linearize it
         local_FluxCb =  rho_b*geoDiff
         # local_FluxFb = -rho_b*geoDiff
         local_FluxFb = np.zeros(theNumberOfBFaces)
         #   Assemble term III
-        local_FluxVb += rho_b*((p_grad_b-p_grad_C)*Region.fluid['DUSf'].phi[iBFaces,:]).sum(1)
+        local_FluxVb += rho_b*mth.cfdDot((p_grad_b-p_grad_C),Region.fluid['DUSf'].phi[iBFaces,:])
         #   local_FluxTb = local_FluxCb.*p(owners_b) + local_FluxFb.*p_b + local_FluxVb;
         #   Update global fluxes
         Region.fluxes.FluxCf[iBFaces] = local_FluxCb
@@ -589,13 +589,13 @@ class Assemble:
         #   Initialize local fluxes
         local_FluxCf = rho_f*geoDiff
         local_FluxFf = -rho_f*geoDiff
-        local_FluxVf = rho_f*(U_bar_f*Sf-p_RhieChowValue*Region.fluid['DUSf'].phi[0:theNumberOfInteriorFaces]).sum(1)
+        local_FluxVf = rho_f*(mth.cfdDot(U_bar_f,Sf)-mth.cfdDot(p_RhieChowValue,Region.fluid['DUSf'].phi[0:theNumberOfInteriorFaces]))
 
         if Region.pp_nonlinear_corrected:
             Region.fluid['pprime'].phiGrad.cfdUpdateGradient(Region)
             DUTf = Region.fluid['DUSf'].phi - Region.fluid['DUEf'].phi
             pp_RhieChowValue=tools.cfdRhieChowValue('pprime',Region)
-            local_FluxVf += rho_f*(pp_RhieChowValue*DUTf[0:theNumberOfInteriorFaces]).sum(1)
+            local_FluxVf += rho_f*mth.cfdDot(pp_RhieChowValue,DUTf[0:theNumberOfInteriorFaces])
 
         #    assemble term III
         #      rho_f ([P_grad]_f.([DPVOL]_f.Sf))
@@ -741,7 +741,7 @@ class Assemble:
         rCf = rf - rC
         # for i in range(numberOfInteriorFaces)
         #     dc_corr[i,:] = mdot_f[i] * np.dot(2*phiGradC[i,:]-phiGrad_f[i,:],rCf[i,:])
-        dc_corr = np.squeeze(mdot_f * np.multiply(2*phiGradC-phiGrad_f,rCf).sum(1)[:,np.newaxis])
+        dc_corr = np.squeeze(mdot_f * mth.cfdDot(2*phiGradC-phiGrad_f,rCf)[:,np.newaxis])
 
         #   Update global fluxes
         Region.fluxes.FluxTf[iFaces] +=  dc_corr
@@ -983,10 +983,10 @@ class Assemble:
         # 处理非正交修正项（如果需要）
         # Interpolated gradients on interior faces
         gradPhi_f=interp.cfdInterpolateGradientsFromElementsToInteriorFaces(Region,Region.fluid[theEquationName].phiGrad.phiGradInter,'linear')
-        local_FluxVf  =-np.squeeze(gamma_f[:numberOfInteriorFaces])*(gradPhi_f*Region.mesh.faceTf[:numberOfInteriorFaces,:]).sum(1)
+        local_FluxVf  =-np.squeeze(gamma_f[:numberOfInteriorFaces])*mth.cfdDot(gradPhi_f,Region.mesh.faceTf[:numberOfInteriorFaces,:])
         if theEquationName=='U':
             gradPhi_f=interp.cfdInterpolateGradientsFromElementsToInteriorFaces(Region,Region.fluid[theEquationName].phiGrad.phiGradInter_TR,'linear')
-            local_FluxVf += np.squeeze(gamma_f[0:numberOfInteriorFaces])*(gradPhi_f*Region.mesh.interiorFaceSf).sum(1)
+            local_FluxVf += np.squeeze(gamma_f[0:numberOfInteriorFaces])*mth.cfdDot(gradPhi_f,Region.mesh.interiorFaceSf)
             if Region.cfdIsCompressible:
                 local_FluxVf += 2.0/3.0*np.squeeze(gamma_f[0:numberOfInteriorFaces])*(Region.fluid[theEquationName].phiGrad.phiGrad_Trace[0:numberOfInteriorFaces]*Region.mesh.interiorFaceSf[:,self.iComponent])
 
