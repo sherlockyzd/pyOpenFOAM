@@ -124,3 +124,30 @@ def cfdResidual(rc, method='norm'):
     elif method =='sum':
         rc_res = np.sum(np.abs(rc))
     return rc_res
+
+
+def cfdDot(Sf, U_f):
+    """
+    计算每个面的面积向量 Sf 与速度向量 U_f 的点积。
+    
+    参数：
+    - Sf: 面面积向量数组，形状为 (..., dim)。
+    - U_f: 面上的速度向量数组，形状为 (..., dim)。
+    
+    返回：
+    - flux: 每个面的通量值数组，形状为 (...,)。
+    
+    支持一维、二维和三维向量。
+    
+    示例：
+    >>> Sf = np.array([[1, 2, 3], [4, 5, 6]])
+    >>> U_f = np.array([[7, 8, 9], [10, 11, 12]])
+    >>> cfdDot(Sf, U_f)
+    array([ 50, 154])
+    """
+    # 检查输入数组的形状是否匹配
+    if Sf.shape != U_f.shape:
+        raise ValueError(f"Shape mismatch: Sf.shape={Sf.shape} and U_f.shape={U_f.shape} must be the same.")
+    
+    # 使用 np.einsum 进行广义点积计算，等价于np.sum(Sf * U_f, axis=-1)
+    return np.einsum('...i,...i->...', Sf, U_f)

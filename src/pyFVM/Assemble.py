@@ -204,7 +204,7 @@ class Assemble:
         Sf = Region.mesh.faceSf[0:theNumberOfInteriorFaces,:]
         #   Calculated info
         e = Region.mesh.faceCFn[0:theNumberOfInteriorFaces,:]
-        DUSf = np.column_stack((DU0_f*Sf[:,1],DU1_f*Sf[:,2],DU2_f*Sf[:,2]))
+        DUSf = np.column_stack((DU0_f*Sf[:,0],DU1_f*Sf[:,1],DU2_f*Sf[:,2]))
         Region.fluid['DUSf'].phi[0:theNumberOfInteriorFaces,:]=DUSf
         magDUSf = mth.cfdMag(DUSf)
         if Region.mesh.OrthogonalCorrectionMethod=='Minimum':
@@ -977,13 +977,13 @@ class Assemble:
         numberOfInteriorFaces = Region.mesh.numberOfInteriorFaces
         phi=Region.fluid[theEquationName].phi[:Region.mesh.numberOfElements,self.iComponent]
         gamma_f=interp.cfdinterpolateFromElementsToFaces(Region,'harmonic mean',Region.model.equations[self.theEquationName].gamma)#调和平均值，《FVM》P226
-        ## Gradients for interior elements
-        ## Interpolated gradients on interior faces
-        gradPhi_f=interp.cfdInterpolateGradientsFromElementsToInteriorFaces(Region,Region.fluid[theEquationName].phiGrad.phiGradInter,'linear')
-        
         local_FluxCf  = np.squeeze(gamma_f[0:numberOfInteriorFaces])*Region.mesh.geoDiff_f[0:numberOfInteriorFaces]
         local_FluxFf  =-np.squeeze(gamma_f[0:numberOfInteriorFaces])*Region.mesh.geoDiff_f[0:numberOfInteriorFaces]
-        local_FluxVf  =-np.squeeze(gamma_f[0:numberOfInteriorFaces])*(gradPhi_f*Region.mesh.faceTf).sum(1)
+
+        # 处理非正交修正项（如果需要）
+        # Interpolated gradients on interior faces
+        gradPhi_f=interp.cfdInterpolateGradientsFromElementsToInteriorFaces(Region,Region.fluid[theEquationName].phiGrad.phiGradInter,'linear')
+        local_FluxVf  =-np.squeeze(gamma_f[:numberOfInteriorFaces])*(gradPhi_f*Region.mesh.faceTf[:numberOfInteriorFaces,:]).sum(1)
         if theEquationName=='U':
             gradPhi_f=interp.cfdInterpolateGradientsFromElementsToInteriorFaces(Region,Region.fluid[theEquationName].phiGrad.phiGradInter_TR,'linear')
             local_FluxVf += np.squeeze(gamma_f[0:numberOfInteriorFaces])*(gradPhi_f*Region.mesh.interiorFaceSf).sum(1)

@@ -83,13 +83,39 @@ class Field():
         self.cfdUpdateScale(Region)
 
     def initializeMdotFromU(self,Region):
-        #not sure if this function fits here?
+        """
+        初始化面上的质量流量 phi，通过将速度 U 和密度 rho 从单元格插值到面上，并计算质量流量。
+        
+        参数：
+        - Region: 包含流体区域信息的对象。
+        
+        过程：
+        1. 使用线性插值方法将速度 U 和密度 rho 从单元格插值到面上。
+        2. 计算每个面的质量流量 phi = rho_f * (Sf ⋅ U_f)。
+        
+        返回：
+        - self.phi: 形状为 (numberOfFaces, numberOfComponents) 的质量流量数组。
+        """
         U_f=interp.cfdinterpolateFromElementsToFaces(Region,'linear',Region.fluid['U'].phi)
-        # rho_f=np.squeeze(interpolate.interpolateFromElementsToFaces(Region,'linear','rho'))
         rho_f=interp.cfdinterpolateFromElementsToFaces(Region,'linear',Region.fluid['rho'].phi)
-        Sf=np.asarray(Region.mesh.faceSf)
+        Sf=Region.mesh.faceSf
         #calculate mass flux through faces, 必须写成二维数组的形式，便于后续与U的数组比较运算!
-        self.phi=np.multiply(rho_f,(Sf*U_f).sum(1)[:,np.newaxis])
+            # 确保插值结果的形状匹配
+        if U_f.ndim != 2 or rho_f.ndim != 2:
+            io.cfdError('插值后的 U_f 和 rho_f 必须是二维数组')
+        
+        if Sf.shape[0] != U_f.shape[0] or Sf.shape[0] != rho_f.shape[0]:
+            io.cfdError('Sf、U_f 和 rho_f 的面数量不匹配')
+        
+        # 计算通量 Sf ⋅ U_f，得到每个面的流量，形状为 (nFaces, 1)
+        flux =mth.cfdDot(Sf, U_f)[:, np.newaxis]  # 使用 np.einsum 进行高效的点积计算
+        
+        # 计算质量流量 phi = rho_f * flux，形状为 (nFaces, 1)
+        self.phi = rho_f * flux  # 形状: (nFaces, 1)
+        
+        # 检查 phi 是否包含非有限值（如 NaN 或无穷大）
+        if not np.all(np.isfinite(self.phi)):
+            io.cfdError('计算得到的质量流量 phi 包含非有限值')
 
     def setDimensions(self,dimensions):
         self.dimensions=dimensions
@@ -239,9 +265,9 @@ class Field():
         self.cfdUpdateScale(Region)
 
     def cfdCorrectField(self,Region,iComponent):
-    # %==========================================================================
-    # %    Correct Fluid Field 更新场值
-    # %--------------------------------------------------------------------------
+    #==========================================================================
+    #    Correct Fluid Field 更新场值
+    #--------------------------------------------------------------------------
         self.cfdCorrectForInterior(Region,iComponent)
         self.cfdCorrectForBoundaryPatches(Region,iComponent)
 
@@ -255,10 +281,10 @@ class Field():
             self.phi[0:theNumberOfElements,iComponent] += Region.coefficients.dphi
 
     def setupPressureCorrection(self,Region):
-        # % Check if needs reference pressure
+        # Check if needs reference pressure
         if Region.mesh.cfdIsClosedCavity:
             # Timesolver=Region.Timesolver
-            # % Get the pressure at the fixed value
+            # Get the pressure at the fixed value
             try:
                 pRefCell = int(Region.dictionaries.fvSolution[Region.Timesolver]['pRefCell'])
                 pRefValue = Region.coefficients.dphi[pRefCell]
@@ -271,10 +297,10 @@ class Field():
         Correct velocity field at cfdBoundary patches
         '''
         for iBPatch, theBCInfo in Region.mesh.cfdBoundaryPatchesArray.items():
-            # % Get Physical and Equation Boundary Conditions
+            # Get Physical and Equation Boundary Conditions
             thePhysicalType = theBCInfo['type']
             theBCType =self.boundaryPatchRef[iBPatch]['type']
-            # % WALL
+            # WALL
             if thePhysicalType=='wall':
                 if theBCType=='noSlip':
                     continue
@@ -287,7 +313,7 @@ class Field():
                     self.correctZeroGradient(Region,iBPatch,iComponent)
                 else:
                     io.cfdError(thePhysicalType+' Condition '+theBCType+' not implemented')
-            # % INLET
+            # INLET
             elif thePhysicalType=='inlet':
                 if theBCType=='fixedValue':
                     continue
@@ -295,7 +321,7 @@ class Field():
                     self.correctZeroGradient(Region,iBPatch,iComponent)
                 else:
                     io.cfdError(thePhysicalType+' Condition '+theBCType+' not implemented')
-            # % OUTLET
+            # OUTLET
             elif thePhysicalType=='outlet':
                 if theBCType=='outlet' or theBCType=='zeroGradient':
                     self.correctZeroGradient(Region,iBPatch,iComponent)
@@ -303,14 +329,14 @@ class Field():
                     continue
                 else:
                     io.cfdError(thePhysicalType+' Condition '+theBCType+' not implemented')
-            # % SYMMETRY/EMPTY
+            # SYMMETRY/EMPTY
             elif thePhysicalType=='symmetry' or thePhysicalType=='symmetryPlane' or thePhysicalType=='empty':
                 self.correctSymmetry(Region,iBPatch,iComponent)
             else:
                 io.cfdError(thePhysicalType+' Condition '+theBCType+' not implemented')
 
     def correctSlipWall(self,Region,iBPatch,iComponent):
-        # % Get info
+        # Get info
         iBElements = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
         owners_b = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
         # Sb = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['facesSf']
@@ -320,30 +346,30 @@ class Field():
         # U_C = Region.fluid['U'].phi
         # Update field by imposing the parallel to wall component of velocity. This
         # is done by removing the normal component
-        phi_normal = (self.phi[owners_b,:]*n).sum(1)
+        phi_normal = mth.cfdDot(self.phi[owners_b,:],n)
         self.phi[iBElements,iComponent] -=  phi_normal*n[:,iComponent]
         # Store
         # Region.fluid['U'].phi[iBElements,iComponent] = U_C[iBElements,iComponent]
 
 
     def correctZeroGradient(self,Region,iBPatch,iComponent):
-        # % Get info
+        # Get info
         iBElements = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
         iOwners = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
-        # % Copy value from owner cell
+        # Copy value from owner cell
         self.phi[iBElements, iComponent] = self.phi[iOwners, iComponent]
 
     def correctSymmetry(self,Region,iBPatch,iComponent):
-        # % Get info
+        # Get info
         iBElements = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
         owners_b = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
         # Sb = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['facesSf']
         if iComponent !=-1:
             n = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['facen']
-            # % Get Vector Field at Boundary
-            # # % Update field by imposing the parallel to wall component of velocity. This
-            # # % is done by removing the normal component
-            phi_normal = (self.phi[owners_b,:]*n).sum(1)
+            # Get Vector Field at Boundary
+            # # Update field by imposing the parallel to wall component of velocity. This
+            # # is done by removing the normal component
+            phi_normal = mth.cfdDot(self.phi[owners_b,:]*n)
             self.phi[iBElements,iComponent] -=  phi_normal*n[:,iComponent]
         else:
             self.phi[iBElements] =  self.phi[owners_b]
@@ -505,7 +531,7 @@ class Field():
             n=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['facen']
             # np.column_stack((self.Sb[:,0]/self.normSb,self.Sb[:,1]/self.normSb,self.Sb[:,2]/self.normSb))
             #perform elementwise multiplication of owner's values with boundary face normals
-            U_normal_cfdMag=(self.phi[owners_b]*n).sum(1)
+            U_normal_cfdMag=mth.cfdDot(self.phi[owners_b]*n)
             #seems to do the same thing a the above line without the .sum(1)
             U_normal=np.column_stack((U_normal_cfdMag*n[:,0],U_normal_cfdMag*n[:,1],U_normal_cfdMag*n[:,2]))
             self.phi[iBElements]=self.phi[owners_b]-U_normal
@@ -516,7 +542,7 @@ class Field():
         # --------------------------------------------------------------------------
         if self.name=='U':
             theNumberOfElements = Region.coefficients.NumberOfElements
-            # % Get fields
+            # Get fields
             DU0 = np.squeeze(Region.fluid['DU0'].phi)[0:theNumberOfElements]
             DU1 = np.squeeze(Region.fluid['DU1'].phi)[0:theNumberOfElements]
             DU2 = np.squeeze(Region.fluid['DU2'].phi)[0:theNumberOfElements]
@@ -524,7 +550,7 @@ class Field():
             #  Calculate Dc*gradP
             # DUPPGRAD = np.asarray([DU0*ppGrad[:,1],DU1*ppGrad[:,2],DU2*ppGrad[:,2]]).T
             DUPPGRAD = np.column_stack((DU0*ppGrad[:,1],DU1*ppGrad[:,2],DU2*ppGrad[:,2]))
-            # % Correct velocity
+            # Correct velocity
             self.phi[0:theNumberOfElements,:] -= DUPPGRAD
             for iComponent in range(3):
                 self.cfdCorrectForBoundaryPatches(Region,iComponent)

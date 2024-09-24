@@ -200,6 +200,7 @@ class Coefficients():
             indices (ndarray): 非零值对应的列索引。
             indptr (ndarray): 每一行在 data 和 indices 中的起始位置索引。
         """
+        NumberOfElements=self.NumberOfElements
         if not hasattr(self, '_csr_structure'):
             # 组装矩阵结构部分（indices 和 indptr）
             # indices = []
@@ -212,7 +213,6 @@ class Coefficients():
             #     indptr.append(len(indices))
             # self._indices = np.array(indices, dtype=np.int32)
             # self._indptr = np.array(indptr, dtype=np.int32)
-            NumberOfElements=self.NumberOfElements
             indptr = np.zeros(NumberOfElements + 1, dtype=np.int32)
             indices = []
             for i in range(NumberOfElements):

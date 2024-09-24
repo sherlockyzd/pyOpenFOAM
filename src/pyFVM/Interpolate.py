@@ -70,13 +70,13 @@ def  cfdInterpolateFromElementsToInteriorFaces(Region,theInterpolationScheme,fie
 
     elif theInterpolationScheme == 'harmonic mean':
         # 谐和平均插值： phi_f = 1 / ((1 - w)/phi_O + w/phi_N)
-        phi_f = 1 / ((1 - g_f)[:, None] / field[owners, :] + g_f[:, None] / field[neighbours, :])
+        phi_f[:numberOfInteriorFaces,:] = 1 / ((1 - g_f)[:, None] / field[owners, :] + g_f[:, None] / field[neighbours, :])
         # for iComponent in range(theNumberOfComponents):
         #     phi_f[0:numberOfInteriorFaces,iComponent]=1/((1-g_f)/field[owners][:,iComponent]+g_f/field[neighbours][:,iComponent])
 
     elif theInterpolationScheme == 'vanLeerV':
         vol = Region.mesh.elementVolumes
-        phi_f = ((vol[owners] + vol[neighbours]) * field[owners, :] * field[neighbours, :]) / \
+        phi_f[:numberOfInteriorFaces,:] = ((vol[owners] + vol[neighbours]) * field[owners, :] * field[neighbours, :]) / \
                 (vol[neighbours] * field[owners, :] + vol[owners] * field[neighbours, :])
         # for iComponent in range(theNumberOfComponents):
         #     phi_f[0:numberOfInteriorFaces,iComponent] = (vol[owners]+vol[neighbours])*field[owners,iComponent]*field[neighbours,iComponent]/(vol[neighbours]*field[owners,iComponent]+vol[owners]*field[neighbours,iComponent])
@@ -84,9 +84,9 @@ def  cfdInterpolateFromElementsToInteriorFaces(Region,theInterpolationScheme,fie
     elif theInterpolationScheme == 'linearUpwind':
         if args:
             mdot_f=args[0]
-            pos = (mdot_f > 0).astype(int)
+            pos = (mdot_f > 0).astype(int)[:numberOfInteriorFaces,:]
             # 插值： phi_f = pos * phi_O + (1 - pos) * phi_N
-            phi_f = pos[:, None] * field[owners, :] + (1 - pos)[:, None] * field[neighbours, :]
+            phi_f[:numberOfInteriorFaces,:] = pos[:, None] * field[owners, :] + (1 - pos)[:, None] * field[neighbours, :]
             # for iComponent in range(theNumberOfComponents):
             #     phi_f[0:numberOfInteriorFaces,iComponent] = field[owners,iComponent]*pos + field[neighbours,iComponent]*(1 - pos)
         else:
@@ -141,11 +141,11 @@ def cfdInterpolateGradientsFromElementsToInteriorFaces(Region,gradPhi,scheme,*ar
             If the faceWeight (g_f) of the owner cell is high, then its gradient contributes more to the face's gradient than the neighbour cell.
         """
         # 线性插值： grad_f = (1 - w) * gradPhi_N + w * gradPhi_O
-        grad_f=(1-g_f)[:,None]*gradPhi[neighbours_f,:]+g_f[:,None]*gradPhi[owners_f,:]
+        grad_f[:numberOfInteriorFaces,:]=(1-g_f)[:,None]*gradPhi[neighbours_f,:]+g_f[:,None]*gradPhi[owners_f,:]
 
     elif scheme == 'Gauss linear corrected':
         #书籍《The Finite Volume Method in Computational Fluid Dynamics》Page 289页
-        grad_f=(1-g_f)[:,None]*gradPhi[neighbours_f,:]+g_f[:,None]*gradPhi[owners_f,:]
+        grad_f[:numberOfInteriorFaces,:]=(1-g_f)[:,None]*gradPhi[neighbours_f,:]+g_f[:,None]*gradPhi[owners_f,:]
         # ScfdUrface-normal gradient
         dcfdMag = mth.cfdMag(CF)
         e_CF = mth.cfdUnit(CF)
@@ -172,8 +172,8 @@ def cfdInterpolateGradientsFromElementsToInteriorFaces(Region,gradPhi,scheme,*ar
             io.cfdError('Gauss upwind requires flow rate (mdot_f) as a second argument')
         
         # 根据流量方向选择插值方向
-        pos = (mdot_f > 0).astype(int)
-        grad_f = pos*local_grad_f[owners_f,:] + (1-pos)*local_grad_f[neighbours_f,:]
+        pos = (mdot_f > 0).astype(int)[:numberOfInteriorFaces,:]
+        grad_f[:numberOfInteriorFaces,:] = pos*local_grad_f[owners_f,:] + (1-pos)*local_grad_f[neighbours_f,:]
     else:
         io.cfdError(f"{scheme} is not yet implemented, but it will have to be")
 
