@@ -900,19 +900,6 @@ class Polymesh():
         """
 
         ## Linear weight of distance from cell center to face
-        # self.faceWeights= [[0] for i in range(self.numberOfFaces)]
-        # self.faceCF= [[0,0,0] for i in range(self.numberOfFaces)]
-        # self.faceCFn= [[0,0,0] for i in range(self.numberOfFaces)]
-        # self.faceCf= [[0,0,0] for i in range(self.numberOfFaces)]
-        # self.faceFf= [[0,0,0] for i in range(self.numberOfFaces)]
-        # self.faceDist= [[0] for i in range(self.numberOfFaces)]
-        # self.wallDistLimited= [[] for i in range(self.numberOfFaces)]
-        # self.geoDiff_f= [[0] for i in range(self.numberOfFaces)]
-        # self.faceEf= [[0,0,0] for i in range(self.numberOfInteriorFaces)]
-        # self.faceTf= [[0,0,0] for i in range(self.numberOfInteriorFaces)]
-        # # self.wallDist= [[] for i in range(self.numberOfFaces)]   
-        # self.elementCentroids= [[] for i in range(self.numberOfElements)]
-        # self.elementVolumes= [[] for i in range(self.numberOfElements)]
         self.faceWeights = np.zeros(self.numberOfFaces,dtype=float)
         self.faceCF = np.zeros((self.numberOfFaces, 3),dtype=float)
         self.faceCFn = np.zeros((self.numberOfFaces, 3),dtype=float)
@@ -1187,7 +1174,10 @@ class Polymesh():
             self.wallDistLimited[iBFace]= max(self.faceDist[iBFace], 0.05*np.linalg.norm(self.faceCf[iBFace]))        
         
         # self.facen=mth.cfdUnit(self.faceSf)
-        
+        # 确保权重在合理范围内
+        if not np.all((self.faceWeights >= 0) & (self.faceWeights <= 1)):
+            io.cfdError('Interpolation weights out of bounds: some g_f values are not between 0 and 1')
+
     def cfdGetBoundaryElementsSubArrayForBoundaryPatch(self):
         """
         Creates a list of the boundary elements pertaining to a patch in self.cfdBoundaryPatchesArray

@@ -290,17 +290,18 @@ class Assemble:
         '''
         Fix Pressure
         '''
-        if Region.mesh.cfdIsClosedCavity:
-            # Timesolver=Region.Timesolver
-            # Get the pressure at the fixed value
-            try:
-                pRefCell = int(Region.dictionaries.fvSolution[Region.Timesolver]['pRefCell'])
-                # theElementNbIndices = Region.mesh.elementNeighbours[pRefCell]
-                for iNBElement in range(len(Region.mesh.elementNeighbours[pRefCell])):
-                    Region.coefficients.anb[pRefCell][iNBElement] = 0
-                Region.coefficients.bc[pRefCell]= 0
-            except KeyError:
-                io.cfdError('pRefCell not found')
+        if self.theEquationName=='p':
+            if Region.mesh.cfdIsClosedCavity:
+                # Timesolver=Region.Timesolver
+                # Get the pressure at the fixed value
+                try:
+                    pRefCell = int(Region.dictionaries.fvSolution[Region.Timesolver]['pRefCell'])
+                    # theElementNbIndices = Region.mesh.elementNeighbours[pRefCell]
+                    for iNBElement in range(len(Region.mesh.elementNeighbours[pRefCell])):
+                        Region.coefficients.anb[pRefCell][iNBElement] = 0
+                    Region.coefficients.bc[pRefCell]= 0
+                except KeyError:
+                    io.cfdError('pRefCell not found')
 
     def cfdAssembleDiagDominance(self,Region,*args):
     # ==========================================================================

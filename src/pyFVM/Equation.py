@@ -1,5 +1,6 @@
 # import os
 import numpy as np
+import pyFVM.Math as mth
 # import pyFVM.Coefficients as coefficients
 # import pyFVM.Solve as solve
 # import pyFVM.Scalar as scalar
@@ -42,7 +43,7 @@ class Equation():
             # % Scale with scale value (max value)
             p_scale = Region.fluid['p'].scale
             maxResidual = max(abs(bc)/(ac*p_scale))
-            rmsResidual = np.sqrt(np.mean(np.square(abs(bc)/(ac*p_scale))))
+            rmsResidual = mth.cfdResidual(abs(bc)/(ac*p_scale),'RMS')
         else:
             # % Other equations ...
             # % Get info
