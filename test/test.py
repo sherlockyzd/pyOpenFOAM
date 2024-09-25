@@ -1,5 +1,5 @@
 import numpy as np
-from pyFVM import Solve
+from cfdtool import Solve
 
 def test_cfdSolveAlgebraicSystem():
     # Test case 1: Smoother = 'DILU'

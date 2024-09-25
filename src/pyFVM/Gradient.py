@@ -1,6 +1,6 @@
 import numpy as np
-import pyFVM.Math as mth
-import pyFVM.IO as io
+import cfdtool.Math as mth
+import cfdtool.IO as io
 
 
 class Gradient():

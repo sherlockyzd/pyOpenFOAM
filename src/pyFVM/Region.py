@@ -1,13 +1,14 @@
-import pyFVM.IO as io
+import cfdtool.IO as io
 import pyFVM.FoamDictionaries as fd
 import pyFVM.Polymesh as pm
 import pyFVM.Coefficients as coefficients
 import pyFVM.Fluxes as fluxes
-import pyFVM.Time as time
+import cfdtool.Time as time
 import pyFVM.Assemble as assemble
 import pyFVM.Model as model
-import pyFVM.Solve as solve
-import cfdpost.cfdPlot as plt
+import cfdtool.Solve as solve
+import cfdtool.cfdPlot as plt
+import config as cfg
 
 class Region():
     """Sets up the simulation's 'Region'.
@@ -18,8 +19,8 @@ class Region():
     All information related to the mesh's topology (i.e., distances of cell centers to wall, face surface areas, face normals and cell volumes) is available in the Region class. 
     """
     def __init__(self,casePath):
-        self.cfdIsCompressible=False
-        self.pp_nonlinear_corrected=False
+        self.cfdIsCompressible=cfg.cfdIsCompressible
+        self.pp_nonlinear_corrected=cfg.pp_nonlinear_corrected
         self.caseDirectoryPath = casePath
         self.StartSession()
         self.ReadOpenFoamFiles()

@@ -1,8 +1,8 @@
 import numpy as np
 import os
-import pyFVM.IO as io
+import cfdtool.IO as io
 # import pyFVM.Field as field
-import pyFVM.Math as mth
+import cfdtool.Math as mth
 import pyFVM.Interpolate as interp
 import pyFVM.cfdGetTools as tools
 

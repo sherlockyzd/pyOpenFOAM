@@ -1,6 +1,6 @@
 import os
 import sys
-import pyFVM.IO as io
+import cfdtool.IO as io
 import pyFVM.Field as field
 # import pyFVM.Math as mth
 import numpy as np

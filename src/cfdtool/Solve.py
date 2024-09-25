@@ -1,6 +1,6 @@
 # import os
-import pyFVM.IO as io
-import pyFVM.Math as mth
+import cfdtool.IO as io
+import cfdtool.Math as mth
 import numpy as np
 
 def cfdSolveEquation(Region,theEquationName, iComponent):

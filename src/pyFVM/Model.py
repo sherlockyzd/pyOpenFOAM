@@ -1,5 +1,5 @@
 import os
-import pyFVM.IO as io
+import cfdtool.IO as io
 import pyFVM.Field as field
 # import pyFVM.Coefficients as coefficients
 # import pyFVM.Solve as solve

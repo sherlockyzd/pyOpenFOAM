@@ -1,6 +1,6 @@
 # import os
 import numpy as np
-import pyFVM.Math as mth
+import cfdtool.Math as mth
 # import pyFVM.Coefficients as coefficients
 # import pyFVM.Solve as solve
 # import pyFVM.Scalar as scalar

@@ -1,9 +1,7 @@
-# import sys
-import pyFVM.IO as io
+import cfdtool.IO as io
 import numpy as np
 import pyFVM.Interpolate as interp
-import pyFVM.Math as mth
-# import pyFVM.Scalar as Scalar
+import cfdtool.Math as mth
 
 
 class Field():
