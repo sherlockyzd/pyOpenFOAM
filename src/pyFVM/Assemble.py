@@ -41,7 +41,7 @@ class Assemble:
         if args:
             iComponent = args[0]
             self.iComponent=iComponent
-            Region.fluid[self.theEquationName].phiGrad.cfdGetGradientSubArrayForInterior(Region,iComponent)
+            Region.fluid[self.theEquationName].Grad.cfdGetGradientSubArrayForInterior(Region,iComponent)
         else:
             self.iComponent= int(-1)
             Region.fluid[self.theEquationName].phiGrad.cfdGetGradientSubArrayForInterior(Region)
@@ -687,7 +687,6 @@ class Assemble:
         deltaT = Region.dictionaries.controlDict['deltaT']
         local_FluxC = np.squeeze(volumes*Region.fluid['rho'].phi[:Region.mesh.numberOfElements])/deltaT 
         local_FluxC_old = -np.squeeze(volumes*Region.fluid['rho'].phi_old[:Region.mesh.numberOfElements])/deltaT
-        # local_FluxT = np.squeeze(np.multiply(local_FluxC[:, np.newaxis],np.squeeze(self.phi))) + np.multiply(local_FluxC_old[:, np.newaxis],np.squeeze(self.phi_old))
         Region.fluxes.FluxC = local_FluxC
         Region.fluxes.FluxC_old = local_FluxC_old
 

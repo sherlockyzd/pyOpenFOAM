@@ -16,7 +16,7 @@ class Field(DimensionChecked):
     # 定义 Quantity 类型字段，
     phi: Q_ = field(default=None)        # 移除 metadata
     phi_old: Q_ = field(default=None)    # 移除 metadata
-    phiGrad: Q_ = field(default=None)    # 移除 metadata
+    Grad: Q_ = field(default=None)    # 移除 metadata
     max: float = 0.0
     min: float = 0.0
     scale: float = 0.0
@@ -214,7 +214,7 @@ class Field(DimensionChecked):
 
     def cfdfieldUpdateGradient_Scale(self,Region):
         #更新梯度，和比例尺
-        self.phiGrad.cfdUpdateGradient(Region)
+        self.Grad.cfdUpdateGradient(Region)
         self.cfdUpdateScale(Region)
 
     def cfdCorrectField(self,Region,iComponent):
@@ -448,25 +448,19 @@ class Field(DimensionChecked):
     def updateFixedValue(self,Region,iBPatch):
         iBElements=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
         value = self.boundaryPatchRef[iBPatch]['value']
-        self.phi[iBElements] = value
+        self.phi.value[iBElements] = value
 
     def updateNoSlip(self,Region,iBPatch):
         iBElements=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
         # value = self.boundaryPatchRef[iBPatch]['value']
-        self.phi[iBElements].fill(0)
+        self.phi.value[iBElements].fill(0)
 
     def updateZeroGradient(self,Region,iBPatch):
         iBElements=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
         #elements that own the boundary faces
         owners_b = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
-        self.phi[iBElements] = [self.phi[index] for index in owners_b]
-        # for index in range(len(owners_b)):
-        #     self.phi[iBElements[index]]=self.phi[owners_b[index]]
-        # newValues=[]
-        # for index in owners_b:
-        #     newValues.append(self.phi[index])
-        # for count, index in enumerate(iBElements):
-        #     self.phi[index]=newValues[count]
+        self.phi.value[iBElements] = self.phi.value[owners_b] 
+
             
     def updateSymmetry(self,Region,iBPatch):
         #get indices for self.iBPatch's boundary faces in self.phi array
@@ -479,15 +473,15 @@ class Field(DimensionChecked):
         # normSb = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['normSb']
         #normalize Sb components and horizontally stack them into the columns of array n
         if self.iComponent==1:
-            self.phi[iBElements]=self.phi[owners_b]
+            self.phi.value[iBElements]=self.phi.value[owners_b]
         else:
             n=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['facen']
             # np.column_stack((self.Sb[:,0]/self.normSb,self.Sb[:,1]/self.normSb,self.Sb[:,2]/self.normSb))
             #perform elementwise multiplication of owner's values with boundary face normals
-            U_normal_cfdMag=mth.cfdDot(self.phi[owners_b],n)
+            U_normal_cfdMag=mth.cfdDot(self.phi.value[owners_b],n)
             #seems to do the same thing a the above line without the .sum(1)
             U_normal=np.column_stack((U_normal_cfdMag*n[:,0],U_normal_cfdMag*n[:,1],U_normal_cfdMag*n[:,2]))
-            self.phi[iBElements]=self.phi[owners_b]-U_normal
+            self.phi.value[iBElements]=self.phi.value[owners_b]-U_normal
 
     def cfdCorrectNSFields(self,Region,*args):
         # ==========================================================================
@@ -496,16 +490,12 @@ class Field(DimensionChecked):
         if self.name=='U':
             theNumberOfElements = Region.coefficients.NumberOfElements
             # Get fields
-            # DU0 = np.squeeze(Region.fluid['DU0'].phi)[0:theNumberOfElements]
-            # DU1 = np.squeeze(Region.fluid['DU1'].phi)[0:theNumberOfElements]
-            # DU2 = np.squeeze(Region.fluid['DU2'].phi)[0:theNumberOfElements]
-            DU  =Region.fluid['DU'].phi[:theNumberOfElements,:]
-            ppGrad = np.squeeze(Region.fluid['pprime'].phiGrad.phiGrad)[0:theNumberOfElements,:]
+            DU  =Region.fluid['DU'].phi.value[:theNumberOfElements,:]
+            ppGrad = np.squeeze(Region.fluid['pprime'].Grad.phi)[0:theNumberOfElements,:]
             #  Calculate Dc*gradP
-            # DUPPGRAD = np.asarray([DU0*ppGrad[:,1],DU1*ppGrad[:,2],DU2*ppGrad[:,2]]).T
             DUPPGRAD = DU*ppGrad
             # Correct velocity
-            self.phi[0:theNumberOfElements,:] -= DUPPGRAD
+            self.phi.value[0:theNumberOfElements,:] -= DUPPGRAD
             for iComponent in range(3):
                 self.cfdCorrectForBoundaryPatches(Region,iComponent)
             # self.cfdfieldUpdateGradient_Scale(Region)

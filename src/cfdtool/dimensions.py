@@ -28,19 +28,52 @@ class Dimension:
     密度：`[1 -3 0 0 0 0 0]` （kg/m³）
     通过这种方式，OpenFOAM 可以确保所有物理量的单位在计算中保持一致。如果在模拟过程中出现单位不匹配的问题，OpenFOAM 将给出错误信息。
     '''
-    __slots__ = ['value']
+    __slots__ = ['_value']
 
-    def __init__(self, M=0, L=0, T=0, Theta=0, I=0, N=0, J=0, dim_list=None):
-        if dim_list is not None:
-            if not isinstance(dim_list, (list, tuple, np.ndarray)) or len(dim_list) != 7:
-                raise ValueError("dim_list 必须是长度为7的列表、元组或NumPy数组，表示 [M, L, T, Θ, I, N, J]。")
-            self.value = np.array(dim_list, dtype=np.int32)
+    def __init__(self, *args, **kwargs):
+        if len(args) == 1 and isinstance(args[0], (list, tuple, np.ndarray)) and len(args[0]) == 7:
+            dim_list = args[0]
         else:
-            self.value = np.array([M, L, T, Theta, I, N, J], dtype=np.int32)
+            M = kwargs.get('M', 0)
+            L = kwargs.get('L', 0)
+            T = kwargs.get('T', 0)
+            Theta = kwargs.get('Theta', 0)
+            I = kwargs.get('I', 0)
+            N = kwargs.get('N', 0)
+            J = kwargs.get('J', 0)
+            dim_list = kwargs.get('dim_list', [M, L, T, Theta, I, N, J])
         
+        if not isinstance(dim_list, (list, tuple, np.ndarray)) or len(dim_list) != 7:
+            raise ValueError("dim_list must be a length-7 list, tuple, or NumPy array representing [M, L, T, Θ, I, N, J].")
+        
+        # 设置属性时确保只允许在初始化时赋值，后续不可修改
+        value=np.array(dim_list, dtype=np.int8)
+        object.__setattr__(self, '_value', value)
+
         # 将数组设置为只读，确保不可变性
-        self.value.flags.writeable = False
+        self._value.flags.writeable = False
+
     
+    @property
+    def value(self):
+        '''只读属性，返回维度数组'''
+        return self._value
+    
+    def __dir__(self):
+        '''控制 dir() 输出的属性，隐藏 _value，只暴露 value'''
+        return ['value']
+    # def __dir__(self):
+    #     '''控制 dir() 输出的属性，隐藏 _value，只暴露 value 和其他属性'''
+    #     not_visible_attr = ['_value','special variables']  # 不可见属性列表
+    #     base_attrs = super().__dir__()  # 获取所有现有属性
+    #     return [attr for attr in base_attrs if attr not in not_visible_attr]  # 过滤掉 _value
+
+    def __setattr__(self, name, value):
+        # 禁止修改现有属性
+        if name == 'value':
+            raise AttributeError(f"Cannot modify the '{name}' attribute, it is read-only.")
+        super().__setattr__(name, value)
+
     def __mul__(self, other):
         if not isinstance(other, Dimension):
             raise TypeError("Multiplication is only supported between Dimension instances.")
@@ -71,6 +104,9 @@ class Dimension:
     
     def __repr__(self):
         return f"Dimension({self.value.tolist()})"
+    
+    def copy(self):
+        return Dimension(dim_list=self.value)
 
 # 定义常用量纲
 

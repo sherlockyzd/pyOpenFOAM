@@ -4,6 +4,7 @@ import pyFVM.Field as field
 import pyFVM.Gradient as grad
 import pyFVM.Equation as equation
 import pyFVM.cfdfunction as cfun
+import cfdtool.dimensions as dm
 
 class Model():
     def __init__(self,Region):
@@ -34,13 +35,13 @@ class Model():
             self.equations['p'].setTerms(['massDivergenceTerm'])
             if not Region.STEADY_STATE_RUN:
                 self.equations['p'].terms.append('Transient')
-            Region.fluid['pprime']=field.Field(Region,'pprime','volScalarField')
+            Region.fluid['pprime']=field.Field(Region,'pprime','volScalarField',dm.pressure_dim)
             Region.fluid['pprime'].boundaryPatchRef=Region.fluid['p'].boundaryPatchRef
             for iBPatch, values in Region.fluid['pprime'].boundaryPatchRef.items():
                 if values['type']=='fixedValue':
                     Region.fluid['pprime'].boundaryPatchRef[iBPatch]['value']=[0.0]
-            Region.fluid['p'].phiGrad=grad.Gradient(Region,'p')
-            Region.fluid['pprime'].phiGrad=grad.Gradient(Region,'pprime')
+            Region.fluid['p'].Grad=grad.Gradient(Region,'p')
+            Region.fluid['pprime'].Grad=grad.Gradient(Region,'pprime')
             self.DefineDUfield(Region,'DU')
             self.DefineDUfield(Region,'DUT')
             self.DefineDUSffield(Region,'DUSf')
@@ -73,7 +74,7 @@ class Model():
                     self.equations['T'].terms.append('Convection')
                     self.rhophi_exists=True  
 
-            Region.fluid['T'].phiGrad=grad.Gradient(Region,'T')
+            Region.fluid['T'].Grad=grad.Gradient(Region,'T')
 
     def DefineMomentumEquation(self,Region):
         initCasePath=Region.caseDirectoryPath + os.sep+'0'
@@ -110,27 +111,30 @@ class Model():
                 print("Gravity information doesn't exist in the FoamDictionaries object")
             #Define mdot_f field
             self.DefineMdot_f(Region)
-            Region.fluid['U'].phiGrad=grad.Gradient(Region,'U')
+            Region.fluid['U'].Grad=grad.Gradient(Region,'U')
             
     def DefineScalarTransportEquation(self,Region):
         pass
 
     def DefineDUfield(self,Region,Name,*args):
-        # Name=name+str(iComponent)
-        Region.fluid[Name]=field.Field(Region,Name,'volVectorField')
-        Region.fluid[Name].dimensions=[-1,3,1,0,0,0,0]
+        Dp_dim=Region.fluid['p'].Grad.phi.dimension.copy()
+        DU_dim=dm.velocity_dim/Dp_dim
+        Region.fluid[Name]=field.Field(Region,Name,'volVectorField',DU_dim)
+        # Region.fluid[Name].dimensions=[-1,3,1,0,0,0,0]
         # Region.fluid[Name].boundaryPatchRef=Region.fluid['U'].boundaryPatchRef
 
 
     def DefineDUSffield(self,Region,Name,*args):
-        Region.fluid[Name]=field.Field(Region,Name,'surfaceVectorField')
+        DU_dim=Region.fluid['DU'].phi.dimension.copy()
+        DUSf_dim=DU_dim*dm.area_dim
+        Region.fluid[Name]=field.Field(Region,Name,'surfaceVectorField',DUSf_dim)
         Region.fluid[Name].dimensions=[-1,5,1,0,0,0,0]
         # Region.fluid[Name].boundaryPatchRef=Region.fluid['U'].boundaryPatchRef
 
 
     def DefineMdot_f(self,Region):
-        Region.fluid['mdot_f']=field.Field(Region,'mdot_f','surfaceScalarField')
-        Region.fluid['mdot_f'].dimensions=[-2,1,-1,0,0,0,0]
+        # dimensions=[-2,1,-1,0,0,0,0]
+        Region.fluid['mdot_f']=field.Field(Region,'mdot_f','surfaceScalarField',dm.flux_dim)
         Region.fluid['mdot_f'].boundaryPatchRef=Region.fluid['U'].boundaryPatchRef
         cfun.initializeMdotFromU(Region)
 

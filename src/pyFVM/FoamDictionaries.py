@@ -494,16 +494,16 @@ class FoamDictionaries():
             ## the latestTime case)
             self.cfdGetTimeSteps(Region)
             Region.timeDirectory=min(self.timeDictionary)         
-            # self.Region.timeDirectory='0' 
             
         else:
             print("Error in controlDict: startFrom is not valid!")
         
-        for root, directory,files in os.walk(Region.caseDirectoryPath + os.sep +str(Region.timeDirectory)):
+        # Ensure field files are present in the time directory
+        field_dir = os.path.join(Region.caseDirectoryPath, str(Region.timeDirectory))
+        for root, directory,files in os.walk(field_dir):
             if not files:
                 io.cfdError('Fields are not found in the %s directory' % (Region.caseDirectoryPath + os.sep +Region.timeDirectory+"!"))
 
-        # theNumberOfInteriorFaces = self.Region.mesh.numberOfInteriorFaces
         theNumberOfElements = Region.mesh.numberOfElements                       
         
         # 假设 files 是原始字段列表
@@ -515,129 +515,139 @@ class FoamDictionaries():
         # 合并列表，'U' 字段在前，其余字段在后
         files = files_with_priority + remaining_fields
 
-        for file in files:
-            fieldName=file
-            fieldFilePath=Region.caseDirectoryPath + os.sep +Region.timeDirectory+os.sep +fieldName
+        for fieldName in files:
+            fieldFilePath=os.path.join(Region.caseDirectoryPath, Region.timeDirectory, fieldName)
             header=io.cfdGetFoamFileHeader(fieldFilePath)
-            dimensions=np.int32(io.cfdGetKeyValue('dimensions','dimensions',fieldFilePath)[2])
+            dimensions=np.int8(io.cfdGetKeyValue('dimensions','dimensions',fieldFilePath)[2])
+            if fieldName=='p':#OpenFoam里压强单位除以了密度，这里要乘回来
+                dimensions[0]+=1
+                dimensions[1]-=3
             Region.fluid[fieldName]=field.Field(Region,fieldName,header['class'],dimensions)                      
             internalField = io.cfdGetKeyValue('internalField','string',fieldFilePath)
             valueType=internalField[1]
             
             if Region.fluid[fieldName].type=='surfaceScalarField':
                 io.cfdError('surfaceScalarFields are not yet handled.')
-                # print('surfaceScalarFields are not yet handled.')
-                # sys.exit()
-            else:      
-                #reads and sets either volScalarField or volVectorField
-                if valueType == 'uniform':
-                    
-                    if Region.fluid[fieldName].type=='volScalarField':
+
+            # Vectorized initialization for uniform fields
+            if valueType == 'uniform':
+                value_str = internalField[2]
+                if Region.fluid[fieldName].type=='volScalarField':
+                    Region.fluid[fieldName].phi.value[:theNumberOfElements] = value_str
                         
-                        value_str = internalField[2][0]
-                        for count, subList in enumerate(Region.fluid[fieldName].phi):
-                            if count > theNumberOfElements-1:
-                                continue
-                            else:
-                                # subList[0]=value_str
-                                Region.fluid[fieldName].phi.value[count]=value_str
-                            
-                    elif Region.fluid[fieldName].type=='volVectorField':
-                        value_str = internalField[2]
-                        for count, subList in enumerate(Region.fluid[fieldName].phi.value):
-                            if count > theNumberOfElements-1:
-                                continue
-                            else:
-                                Region.fluid[fieldName].phi.value[count]=list(value_str)                                    
-  
-                elif valueType == 'nonuniform':
-                    # print('The function cfdReadNonuniformList() is not yet writen.')
-                    # sys.exit()
-                    io.cfdError('The function cfdReadNonuniformList() is not yet writen.')
-                del(valueType)#防止内部的值对以下边界的误判！！！
-                   
-                for iBPatch, values in Region.mesh.cfdBoundaryPatchesArray.items():          
-                    # numberOfBFaces=values['numberOfBFaces']
-                    # iFaceStart=values['startFaceIndex']
-                    iElementStart = values['iBElements'][0]
-                    # Region.mesh.numberOfElements + iFaceStart - Region.mesh.numberOfInteriorFaces 
-                    iElementEnd = values['iBElements'][-1]
-                    # iElementStart+numberOfBFaces-1
-                    owners_b=values['owners_b']
-                    boundaryFile = io.cfdReadAllDictionaries(fieldFilePath)
-                    boundaryType = boundaryFile['boundaryField'][iBPatch]['type'][0]
-                    try:
-                        boundaryValueDict = boundaryFile['boundaryField'][iBPatch]['value']
-                        valueType, boundaryValue = io.cfdReadUniformVolVectorFieldValue(boundaryValueDict)
-                        '''
-                        这段代码是一个异常处理的例子，用于处理在读取和解析边界条件值时可能发生的错误。以下是对这段代码的详细解释：
-                        1. **尝试块** (`try`):
-                        - `boundaryValue = boundaryFile['boundaryField'][iBPatch]['value']`: 尝试从`boundaryFile`字典中获取与`iBPatch`边界补丁相关的`'value'`条目。
-                        - `valueType, boundaryValue = io.cfdReadUniformVolVectorFieldValue(boundaryValue)`: 尝试读取边界值，并确定其类型（例如，是否是均匀场或非均匀场）。
+                elif Region.fluid[fieldName].type=='volVectorField':
+                    Region.fluid[fieldName].phi.value[:theNumberOfElements] = np.array(value_str)
 
-                        2. **KeyError 异常处理**:
-                        - 如果在尝试访问`'value'`条目时发生了`KeyError`（即字典中不存在该键），则执行`except KeyError`块中的代码。
-                        - 根据`boundaryType`的值，为标量场或矢量场设置默认的边界值。如果边界类型是`'zeroGradient'`或`'empty'`，则分别将边界值设置为0（标量场）或`[0, 0, 0]`（矢量场）。
-                        - 如果边界类型不是上述两种之一，打印一条警告消息，指出该字段的边界条件缺少`'value'`条目。
+            elif valueType == 'nonuniform':
+                io.cfdError('The function cfdReadNonuniformList() is not yet writen.')
+            # del(valueType)#防止内部的值对以下边界的误判！！！
+                
+            for iBPatch, values in Region.mesh.cfdBoundaryPatchesArray.items():          
+                iElementStart = values['iBElements'][0]
+                iElementEnd = values['iBElements'][-1]
+                owners_b=values['owners_b']
 
-                        3. **ValueError 异常处理**:
-                        - 如果在尝试解析边界值时发生了`ValueError`（例如，当值不是预期的格式或类型时），则执行`except ValueError`块中的代码。
-                        - 打印一条错误消息，指出代码目前还无法处理非均匀边界条件，并建议应用均匀边界条件以继续执行。
+                boundaryFile = io.cfdReadAllDictionaries(fieldFilePath)
+                boundaryType = boundaryFile['boundaryField'][iBPatch]['type'][0]
 
-                        4. **循环中断** (`break`):
-                        - 在`except ValueError`块中，使用`break`语句中断当前循环。这意味着如果遇到无法处理的非均匀边界条件，将不再处理更多的边界补丁，而是退出循环。
-
-                        这段代码的目的是确保在读取和设置边界条件时，能够妥善处理缺失或格式不正确的边界值，并在必要时提供清晰的错误信息。
-                        ''' 
-                    except KeyError:
-                        if boundaryType == 'noSlip' or boundaryType == 'empty' : 
-                            if Region.fluid[fieldName].type=='volScalarField' or Region.fluid[fieldName].type=='surfaceScalarField':
-                                boundaryValue = 0                        
-                            elif Region.fluid[fieldName].type=='volVectorField':
-                                boundaryValue = [0,0,0]
-                        elif boundaryType == 'zeroGradient': 
-                            boundaryValue=[]
-                            if Region.fluid[fieldName].type=='volScalarField' or Region.fluid[fieldName].type=='surfaceScalarField':
-
-                                for index, val in enumerate(range(iElementStart, iElementEnd+1)):
-                                    # print(index, val)
-                                    Region.fluid[fieldName].phi.value[val]=Region.fluid[fieldName].phi.value[owners_b[index]]
-                                    boundaryValue.append(Region.fluid[fieldName].phi.value[val])
+                boundaryValueDict = boundaryFile['boundaryField'][iBPatch].get('value', None)
+                if boundaryValueDict is not None:
+                    valueType, boundaryValue = io.cfdReadUniformVolVectorFieldValue(boundaryValueDict)
+                    if valueType == 'uniform':
+                        if Region.fluid[fieldName].type in ['volScalarField', 'surfaceScalarField']:
+                            Region.fluid[fieldName].phi.value[iElementStart:iElementEnd+1] = boundaryValue
+                        elif Region.fluid[fieldName].type in ['volVectorField', 'surfaceVectorField']:
+                            Region.fluid[fieldName].phi.value[iElementStart:iElementEnd+1] = np.array(boundaryValue)
+                    else:
+                        io.cfdError("Error: Oops, code cannot yet handle nonuniform boundary conditions. Not continuing any further ... apply uniform b.c.'s to continue")
+                else:
+                    valueType = None
+                    # Handle missing 'value' entry based on boundary type
+                    if boundaryType in ['noSlip', 'empty']:
+                        boundaryValue = 0 if Region.fluid[fieldName].type in ['volScalarField', 'surfaceScalarField'] else [0, 0, 0]
+                    elif boundaryType == 'zeroGradient':
+                        boundaryValue = Region.fluid[fieldName].phi.value[owners_b]
+                  
+                    else:
+                        io.cfdError(f"Warning: {fieldName} field's {iBPatch} boundary lacks 'value' entry.")
+                    if Region.fluid[fieldName].type in ['volScalarField', 'surfaceScalarField']:
+                        Region.fluid[fieldName].phi.value[iElementStart:iElementEnd+1] = boundaryValue
+                    elif Region.fluid[fieldName].type in ['volVectorField', 'surfaceVectorField']:
+                        Region.fluid[fieldName].phi.value[iElementStart:iElementEnd+1] = np.array(boundaryValue)
 
 
-                            elif Region.fluid[fieldName].type=='volVectorField':
-                                for index, val in enumerate(range(iElementStart, iElementEnd+1)):
-                                    # print(index, val)
-                                    Region.fluid[fieldName].phi.value[val]=Region.fluid[fieldName].phi.value[owners_b[index]]
-                                    boundaryValue.append(Region.fluid[fieldName].phi.value[val])
-                        else:
-                            io.cfdError('Warning: The %s field\'s %s boundary does not have a \'value\' entry' %(fieldName, iBPatch))
-                            # break
-                            
-                    except ValueError:                
-                            io.cfdError("Error: Oops, code cannot yet handle nonuniform boundary conditions. Not continuing any further ... apply uniform b.c.'s to continue")             
-        
-                    try:
-                        if valueType == 'uniform':
-                            if Region.fluid[fieldName].type=='volScalarField' or Region.fluid[fieldName].type=='surfaceScalarField':
-                                for count in range(iElementStart,iElementEnd+1):
-                                    Region.fluid[fieldName].phi.value[count]=boundaryValue[0]        
-                            if Region.fluid[fieldName].type=='volVectorField':   
-                                for count in range(iElementStart,iElementEnd+1):
-                                    Region.fluid[fieldName].phi.value[count]=boundaryValue                   
-                    except NameError:
-                        Region.fluid[fieldName].boundaryPatchRef[iBPatch]={}
-                        Region.fluid[fieldName].boundaryPatchRef[iBPatch]['type']=boundaryType
-                        del(boundaryType)
-                        continue
-                    
-                    Region.fluid[fieldName].boundaryPatchRef[iBPatch]={}
-                    Region.fluid[fieldName].boundaryPatchRef[iBPatch]['type']=boundaryType
-                    Region.fluid[fieldName].boundaryPatchRef[iBPatch]['valueType']=valueType
-                    Region.fluid[fieldName].boundaryPatchRef[iBPatch]['value']=boundaryValue
-                    del(boundaryValue)
-                    del(valueType)#防止上一个边界的值对一下个边界的误判！！！
-                    del(boundaryType)   
+                Region.fluid[fieldName].boundaryPatchRef[iBPatch] = {
+                'type': boundaryType,
+                'valueType': valueType,
+                'value': boundaryValue
+                }
+                # try:
+                #     boundaryValueDict = boundaryFile['boundaryField'][iBPatch]['value']
+                #     valueType, boundaryValue = io.cfdReadUniformVolVectorFieldValue(boundaryValueDict)
+                #     '''
+                #     这段代码是一个异常处理的例子，用于处理在读取和解析边界条件值时可能发生的错误。以下是对这段代码的详细解释：
+                #     1. **尝试块** (`try`):
+                #     - `boundaryValue = boundaryFile['boundaryField'][iBPatch]['value']`: 尝试从`boundaryFile`字典中获取与`iBPatch`边界补丁相关的`'value'`条目。
+                #     - `valueType, boundaryValue = io.cfdReadUniformVolVectorFieldValue(boundaryValue)`: 尝试读取边界值，并确定其类型（例如，是否是均匀场或非均匀场）。
+
+                #     2. **KeyError 异常处理**:
+                #     - 如果在尝试访问`'value'`条目时发生了`KeyError`（即字典中不存在该键），则执行`except KeyError`块中的代码。
+                #     - 根据`boundaryType`的值，为标量场或矢量场设置默认的边界值。如果边界类型是`'zeroGradient'`或`'empty'`，则分别将边界值设置为0（标量场）或`[0, 0, 0]`（矢量场）。
+                #     - 如果边界类型不是上述两种之一，打印一条警告消息，指出该字段的边界条件缺少`'value'`条目。
+
+                #     3. **ValueError 异常处理**:
+                #     - 如果在尝试解析边界值时发生了`ValueError`（例如，当值不是预期的格式或类型时），则执行`except ValueError`块中的代码。
+                #     - 打印一条错误消息，指出代码目前还无法处理非均匀边界条件，并建议应用均匀边界条件以继续执行。
+
+                #     4. **循环中断** (`break`):
+                #     - 在`except ValueError`块中，使用`break`语句中断当前循环。这意味着如果遇到无法处理的非均匀边界条件，将不再处理更多的边界补丁，而是退出循环。
+
+                #     这段代码的目的是确保在读取和设置边界条件时，能够妥善处理缺失或格式不正确的边界值，并在必要时提供清晰的错误信息。
+                #     ''' 
+                # except KeyError:
+                #     if boundaryType == 'noSlip' or boundaryType == 'empty' : 
+                #         if Region.fluid[fieldName].type=='volScalarField' or Region.fluid[fieldName].type=='surfaceScalarField':
+                #             boundaryValue = 0                        
+                #         elif Region.fluid[fieldName].type=='volVectorField':
+                #             boundaryValue = [0,0,0]
+                #     elif boundaryType == 'zeroGradient': 
+                #         boundaryValue=[]
+                #         if Region.fluid[fieldName].type=='volScalarField' or Region.fluid[fieldName].type=='surfaceScalarField':
+
+                #             for index, val in enumerate(range(iElementStart, iElementEnd+1)):
+                #                 # print(index, val)
+                #                 Region.fluid[fieldName].phi.value[val]=Region.fluid[fieldName].phi.value[owners_b[index]]
+                #                 boundaryValue.append(Region.fluid[fieldName].phi.value[val])
+
+
+                #         elif Region.fluid[fieldName].type=='volVectorField':
+                #             for index, val in enumerate(range(iElementStart, iElementEnd+1)):
+                #                 # print(index, val)
+                #                 Region.fluid[fieldName].phi.value[val]=Region.fluid[fieldName].phi.value[owners_b[index]]
+                #                 boundaryValue.append(Region.fluid[fieldName].phi.value[val])
+                #     else:
+                #         io.cfdError('Warning: The %s field\'s %s boundary does not have a \'value\' entry' %(fieldName, iBPatch))
+                #         # break
+                        
+                # except ValueError:                
+                #         io.cfdError("Error: Oops, code cannot yet handle nonuniform boundary conditions. Not continuing any further ... apply uniform b.c.'s to continue")             
+    
+                # try:
+                #     if valueType == 'uniform':
+                #         if Region.fluid[fieldName].type=='volScalarField' or Region.fluid[fieldName].type=='surfaceScalarField':
+                #             for count in range(iElementStart,iElementEnd+1):
+                #                 Region.fluid[fieldName].phi.value[count]=boundaryValue[0]        
+                #         if Region.fluid[fieldName].type=='volVectorField':   
+                #             for count in range(iElementStart,iElementEnd+1):
+                #                 Region.fluid[fieldName].phi.value[count]=boundaryValue                   
+                # except NameError:
+                #     Region.fluid[fieldName].boundaryPatchRef[iBPatch]={}
+                #     Region.fluid[fieldName].boundaryPatchRef[iBPatch]['type']=boundaryType
+                #     del(boundaryType)
+                #     continue
+                # del(boundaryValue)
+                # del(valueType)#防止上一个边界的值对一下个边界的误判！！！
+                # del(boundaryType)   
 
 
     def cfdGetTimeSteps(self,Region):

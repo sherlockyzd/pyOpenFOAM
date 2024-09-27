@@ -1,7 +1,7 @@
 # quantities.py
 import numpy as np
 from config import ENABLE_DIMENSION_CHECK
-from cfdtool.dimensions import Dimension
+from cfdtool.dimensions import Dimension,dimless
 
 class Quantity:
     """
@@ -75,6 +75,12 @@ class Quantity:
             Dimension: 量纲对象。
         """
         return self.__dimension
+
+    # def __array__(self, dtype=None):
+    #     """
+    #     重载 __array__ 方法，以便在使用 NumPy 函数时返回数值部分。
+    #     """
+    #     return np.asarray(self.value, dtype=dtype)    
     
     def __add__(self, other):
         """
@@ -103,6 +109,23 @@ class Quantity:
         
         return Quantity(new_value, new_dimension)
     
+    def __radd__(self, other):
+        """
+        重载右加法运算符，以支持标量 + Quantity。
+
+        参数:
+            other (scalar): 标量值。
+
+        返回:
+            Quantity: 相加后的 Quantity 对象。
+
+        异常:
+            TypeError: 如果 other 不是标量。
+        """
+        if not isinstance(other, Quantity):
+            raise TypeError("加法仅支持 Quantity 实例之间的相加。")
+        return self.__add__(other)
+    
     def __sub__(self, other):
         """
         重载减法运算符。
@@ -126,6 +149,32 @@ class Quantity:
             )
         
         new_value = self.value - other.value
+        new_dimension = self.dimension  # 量纲相同
+        
+        return Quantity(new_value, new_dimension)
+
+    def __rsub__(self, other):
+        """
+        重载右减法运算符，以支持标量 - Quantity。
+
+        参数:
+            other (scalar): 标量值。
+
+        返回:
+            Quantity: 相减后的 Quantity 对象。
+
+        异常:
+            TypeError: 如果 other 不是标量。
+        """
+        if not isinstance(other, Quantity):
+            raise TypeError("减法仅支持 Quantity 实例之间的相减。")
+        
+        if ENABLE_DIMENSION_CHECK and self.dimension != other.dimension:
+            raise ValueError(
+                f"无法相减不同量纲的 Quantity 对象：{self.dimension} 和 {other.dimension}。"
+            )
+        
+        new_value = other.value - self.value
         new_dimension = self.dimension  # 量纲相同
         
         return Quantity(new_value, new_dimension)
@@ -193,6 +242,27 @@ class Quantity:
         else:
             raise TypeError("除法仅支持 Quantity 对象或标量。")
     
+    def __rtruediv__(self, other):
+        """
+        重载右除法运算符，以支持标量 / Quantity。
+
+        参数:
+            other (scalar): 标量值。
+
+        返回:
+            Quantity: 相除后的 Quantity 对象。
+
+        异常:
+            TypeError: 如果 other 不是标量。
+        """
+        if isinstance(other, Quantity):
+            new_value = other.value / self.value
+            new_dimension = other.dimension / self.dimension
+        elif isinstance(other, (int, float)):
+            new_value = other / self.value
+            new_dimension = dimless/self.dimension
+        return Quantity(new_value, new_dimension)
+    
     def __pow__(self, power):
         """
         重载幂运算符。
@@ -253,6 +323,54 @@ class Quantity:
         if not isinstance(other, Quantity):
             return False
         return np.array_equal(self.value, other.value) and self.dimension == other.dimension
+    
+    def __getitem__(self, key):
+        """
+        重载切片操作符，以支持返回带量纲的 Quantity 对象。
+
+        参数:
+            key (int, slice): 切片索引或整数索引。
+
+        返回:
+            Quantity: 切片后的 Quantity 对象。
+        """
+        # 使用 self.value[key] 获取切片后的数值部分
+        sliced_value = self.value[key]
+        # 返回一个新的 Quantity 对象，量纲与原对象相同
+        return Quantity(sliced_value, self.dimension)
+    
+    def __setitem__(self, key, value):
+        """
+        重载赋值操作符，以支持直接修改数组部分的值。
+
+        参数:
+            key (int, slice): 要修改的索引或切片。
+            value (int, float, list, numpy.ndarray): 新的值，可以是标量或数组。
+        """
+        # 这里检查传入值是否与当前存储的数据类型兼容
+        if isinstance(value, Quantity):
+            # 如果传入的是 Quantity 对象，确保量纲相同
+            if self.dimension != value.dimension:
+                raise ValueError("量纲不匹配，无法进行赋值操作。")
+            self.__value[key] = value.value.copy()
+        # else:
+        #     # 直接设置新的值
+        #     self.__value[key] = value
+
+    def apply_function(self, func, *args, **kwargs):
+        """
+        对数值部分应用一个函数，并返回新的 Quantity 对象。
+        
+        参数:
+            func (callable): 要应用的函数，比如 np.linalg.norm。
+            *args: 传递给 func 的位置参数。
+            **kwargs: 传递给 func 的关键字参数。
+        
+        返回:
+            Quantity: 一个新的 Quantity 对象，数值部分是 func 的结果，量纲保持不变。
+        """
+        new_value = func(self.value, *args, **kwargs)
+        return Quantity(new_value, self.dimension)
 
 '''
 # 示例
