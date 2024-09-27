@@ -22,30 +22,15 @@ def cfdMag(valueVector):
     12. `return result`：函数返回`result`，它可能是一个包含多个模的列表，或者是一个单一的模数值。
     总结来说，这段代码的目的是计算一个向量列表中每个向量的模，或者如果只给定了一个向量，则计算该向量的模。如果输入是一个向量列表，它会返回一个包含每个向量模的列表；如果输入是一个单一向量，它会返回该向量的模。
     """
-#     try:
-#         iter(valueVector[0])
-#         result = []
-#         for iVector in valueVector:
-# #            print(iVector)
-#             dotProduct = np.vdot(iVector,iVector)
-#             magnitude = np.sqrt(dotProduct)
-#             result.append(magnitude)
-
-#     except TypeError:   
-#         dotProduct = np.vdot(valueVector,valueVector)
-#         magnitude = np.sqrt(dotProduct)
-#         result = magnitude
-#     return result
-    try:
-        # 尝试迭代 valueVector[0]，如果成功，则 valueVector 是一个列表的列表或数组的数组
-        iter(valueVector[0])
-        # 使用 np.linalg.norm 计算每个子向量的欧几里得范数
-        result = [np.linalg.norm(iVector) for iVector in valueVector]
-    except TypeError:
-        # 如果 valueVector 不可迭代，则它是一个一维数组或列表
-        # 直接计算其欧几里得范数
-        result = np.linalg.norm(valueVector)
-    return result
+    # valueVector = np.asarray(valueVector)
+    if valueVector.ndim == 1:
+        # 输入是单个向量，返回单一模数
+        return np.linalg.norm(valueVector)
+    elif valueVector.ndim == 2:
+        # 输入是向量列表，返回每个向量的模
+        return np.linalg.norm(valueVector, axis=1)
+    else:
+        raise ValueError("valueVector 必须是一维或二维的 NumPy 数组。")
 
 def cfdUnit(vector):
     """

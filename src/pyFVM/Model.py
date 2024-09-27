@@ -1,11 +1,9 @@
 import os
 import cfdtool.IO as io
 import pyFVM.Field as field
-# import pyFVM.Coefficients as coefficients
-# import pyFVM.Solve as solve
-# import pyFVM.Scalar as scalar
 import pyFVM.Gradient as grad
 import pyFVM.Equation as equation
+import pyFVM.cfdfunction as cfun
 
 class Model():
     def __init__(self,Region):
@@ -134,9 +132,6 @@ class Model():
         Region.fluid['mdot_f']=field.Field(Region,'mdot_f','surfaceScalarField')
         Region.fluid['mdot_f'].dimensions=[-2,1,-1,0,0,0,0]
         Region.fluid['mdot_f'].boundaryPatchRef=Region.fluid['U'].boundaryPatchRef
-        Region.fluid['mdot_f'].initializeMdotFromU(Region)
-        
-            
-
+        cfun.initializeMdotFromU(Region)
 
                  

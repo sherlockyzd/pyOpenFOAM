@@ -1,7 +1,7 @@
 import numpy as np
 # import cfdtool.IO as io
 import cfdtool.Math as mth
-import pyFVM.Interpolate as interp
+import cfdtool.Interpolate as interp
 
 
 def cfdRhieChowValue(fieldName,Region):

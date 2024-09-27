@@ -519,8 +519,8 @@ class FoamDictionaries():
             fieldName=file
             fieldFilePath=Region.caseDirectoryPath + os.sep +Region.timeDirectory+os.sep +fieldName
             header=io.cfdGetFoamFileHeader(fieldFilePath)
-            Region.fluid[fieldName]=field.Field(Region,fieldName,header['class'])
-            Region.fluid[fieldName].dimensions=io.cfdGetKeyValue('dimensions','dimensions',fieldFilePath)[2]                       
+            dimensions=np.int32(io.cfdGetKeyValue('dimensions','dimensions',fieldFilePath)[2])
+            Region.fluid[fieldName]=field.Field(Region,fieldName,header['class'],dimensions)                      
             internalField = io.cfdGetKeyValue('internalField','string',fieldFilePath)
             valueType=internalField[1]
             
@@ -540,15 +540,15 @@ class FoamDictionaries():
                                 continue
                             else:
                                 # subList[0]=value_str
-                                Region.fluid[fieldName].phi[count]=value_str
+                                Region.fluid[fieldName].phi.value[count]=value_str
                             
                     elif Region.fluid[fieldName].type=='volVectorField':
                         value_str = internalField[2]
-                        for count, subList in enumerate(Region.fluid[fieldName].phi):
+                        for count, subList in enumerate(Region.fluid[fieldName].phi.value):
                             if count > theNumberOfElements-1:
                                 continue
                             else:
-                                Region.fluid[fieldName].phi[count]=list(value_str)                                    
+                                Region.fluid[fieldName].phi.value[count]=list(value_str)                                    
   
                 elif valueType == 'nonuniform':
                     # print('The function cfdReadNonuniformList() is not yet writen.')
@@ -598,62 +598,37 @@ class FoamDictionaries():
                         elif boundaryType == 'zeroGradient': 
                             boundaryValue=[]
                             if Region.fluid[fieldName].type=='volScalarField' or Region.fluid[fieldName].type=='surfaceScalarField':
-                                # for count, subList in enumerate(Region.fluid[fieldName].phi):
-                                #     if count < iElementStart or count > iElementEnd:
-                                #         continue
-                                #     else:
-                                #         Region.fluid[fieldName].phi[count]=boundaryValue
+
                                 for index, val in enumerate(range(iElementStart, iElementEnd+1)):
                                     # print(index, val)
-                                    Region.fluid[fieldName].phi[val]=Region.fluid[fieldName].phi[owners_b[index]]
-                                    boundaryValue.append(Region.fluid[fieldName].phi[val])
-                                # for count in range(iElementStart,iElementEnd+1):
-                                #     Region.fluid[fieldName].phi[count]=boundaryValue
+                                    Region.fluid[fieldName].phi.value[val]=Region.fluid[fieldName].phi.value[owners_b[index]]
+                                    boundaryValue.append(Region.fluid[fieldName].phi.value[val])
+
 
                             elif Region.fluid[fieldName].type=='volVectorField':
-                                # for count, subList in enumerate(Region.fluid[fieldName].phi):
-                                #     if count < iElementStart or count > iElementEnd:
-                                #         continue
-                                #     else:
-                                #         Region.fluid[fieldName].phi[count]=boundaryValue
                                 for index, val in enumerate(range(iElementStart, iElementEnd+1)):
                                     # print(index, val)
-                                    Region.fluid[fieldName].phi[val]=Region.fluid[fieldName].phi[owners_b[index]]
-                                    boundaryValue.append(Region.fluid[fieldName].phi[val])
+                                    Region.fluid[fieldName].phi.value[val]=Region.fluid[fieldName].phi.value[owners_b[index]]
+                                    boundaryValue.append(Region.fluid[fieldName].phi.value[val])
                         else:
-                            print('Warning: The %s field\'s %s boundary does not have a \'value\' entry' %(fieldName, iBPatch))
+                            io.cfdError('Warning: The %s field\'s %s boundary does not have a \'value\' entry' %(fieldName, iBPatch))
                             # break
                             
                     except ValueError:                
-                            print("Error: Oops, code cannot yet handle nonuniform boundary conditions")
-                            print("       Not continuing any further ... apply uniform b.c.'s to continue")
-                            sys.exit()               
+                            io.cfdError("Error: Oops, code cannot yet handle nonuniform boundary conditions. Not continuing any further ... apply uniform b.c.'s to continue")             
         
                     try:
                         if valueType == 'uniform':
                             if Region.fluid[fieldName].type=='volScalarField' or Region.fluid[fieldName].type=='surfaceScalarField':
-                                # for count, subList in enumerate(Region.fluid[fieldName].phi):
-                                #     if count < iElementStart or count > iElementEnd:
-                                #         continue
-                                #     else:
-                                #         Region.fluid[fieldName].phi[count]=boundaryValue
                                 for count in range(iElementStart,iElementEnd+1):
-                                    Region.fluid[fieldName].phi[count]=boundaryValue[0]        
+                                    Region.fluid[fieldName].phi.value[count]=boundaryValue[0]        
                             if Region.fluid[fieldName].type=='volVectorField':   
-                                # for count, subList in enumerate(Region.fluid[fieldName].phi):
-                                #     if count < iElementStart or count > iElementEnd:
-                                #         continue
-                                #     else:
-                                #         #print(count)
-                                #         #print(boundaryValue)
-                                #         Region.fluid[fieldName].phi[count]=boundaryValue
                                 for count in range(iElementStart,iElementEnd+1):
-                                    Region.fluid[fieldName].phi[count]=boundaryValue                   
+                                    Region.fluid[fieldName].phi.value[count]=boundaryValue                   
                     except NameError:
                         Region.fluid[fieldName].boundaryPatchRef[iBPatch]={}
                         Region.fluid[fieldName].boundaryPatchRef[iBPatch]['type']=boundaryType
                         del(boundaryType)
-                        # del(valueType)
                         continue
                     
                     Region.fluid[fieldName].boundaryPatchRef[iBPatch]={}
@@ -857,9 +832,9 @@ class FoamDictionaries():
                     for iDim in transportDicts[iKey][0:7]:
                         dimVector.append(float(iDim))
                     keyValue = float(transportDicts[iKey][7])
-                    Region.fluid[iKey]=field.Field(Region,iKey,'volScalarField')
-                    Region.fluid[iKey].dimensions=transportDicts[iKey][0:7]  
-                    Region.fluid[iKey].phi.fill(keyValue)
+                    Region.fluid[iKey]=field.Field(Region,iKey,'volScalarField',transportDicts[iKey][0:7])
+                    # Region.fluid[iKey].dimensions=transportDicts[iKey][0:7]  
+                    Region.fluid[iKey].phi.value.fill(keyValue)
                     # numberOfBPatches=int(self.Region.mesh.numberOfBoundaryPatches)
                     # for iPatch in range(0,numberOfBPatches):
                     boundaryPatch['value'] = keyValue
@@ -888,8 +863,8 @@ class FoamDictionaries():
             
             if not 'mu' in transportKeys:
                 if 'nu' in transportKeys and 'rho' in transportKeys:
-                    Region.fluid['mu']=field.Field(Region,'mu','volScalarField')
-                    Region.fluid['mu'].dimensions=[0., 0., 0., 0., 0., 0.,0.] 
+                    dimensions_mu=Region.fluid['nu'].phi.dimension*Region.fluid['rho'].phi.dimension
+                    Region.fluid['mu']=field.Field(Region,'mu','volScalarField',dimensions_mu)
                     Region.fluid['mu'].phi=Region.fluid['nu'].phi*Region.fluid['rho'].phi
                     boundaryPatch={}
                     # numberOfBPatches=int(self.Region.mesh.numberOfBoundaryPatches)

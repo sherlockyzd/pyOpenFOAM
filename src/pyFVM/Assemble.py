@@ -3,7 +3,7 @@ import os
 import cfdtool.IO as io
 # import pyFVM.Field as field
 import cfdtool.Math as mth
-import pyFVM.Interpolate as interp
+import cfdtool.Interpolate as interp
 import pyFVM.cfdGetTools as tools
 
 class Assemble:

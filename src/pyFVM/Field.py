@@ -1,145 +1,122 @@
 import cfdtool.IO as io
 import numpy as np
-import pyFVM.Interpolate as interp
 import cfdtool.Math as mth
+from dataclasses import dataclass, field
+from cfdtool.quantities import Quantity as Q_
+import cfdtool.dimensions as dm
 
+from cfdtool.base import DimensionChecked
 
-class Field():
-    
-    def __init__(self,Region,fieldName, fieldType):
-        """Creates an empty field class that will be populated later on.
+@dataclass
+class Field(DimensionChecked):
+    name: str
+    type: str
+    boundaryPatchRef: dict = field(default_factory=dict)
+    iComponent: int = field(default=1)
+    # 定义 Quantity 类型字段，
+    phi: Q_ = field(default=None)        # 移除 metadata
+    phi_old: Q_ = field(default=None)    # 移除 metadata
+    phiGrad: Q_ = field(default=None)    # 移除 metadata
+    max: float = 0.0
+    min: float = 0.0
+    scale: float = 0.0
+
+    def __init__(self,Region,fieldName, fieldType,dimension_input=None):
+        """
+        dataclass 和字段元数据：使用 dataclass 定义 Field 类，并通过字段的 metadata 指定每个 Quantity 字段的预期量纲。
+        例如，phi: Quantity = field(default=None, metadata={'dimension': dimless}) 指定了 phi 的预期量纲为无量纲。
+
+        继承基类 DimensionChecked：Field 类继承自 DimensionChecked，在初始化和赋值时自动进行量纲检查。
+        
+        __setattr__ 方法：在赋值操作时，DimensionChecked 的 __setattr__ 方法会检查被赋值的 Quantity 对象的量纲是否与预期一致。
+        如果量纲不一致，会抛出 ValueError 异常。
+        
+        Quantity 类的可变性：Quantity 类的 value 属性是可变的（使用 NumPy 数组），允许在不改变量纲的前提下修改数值。
+        dimension 属性是不可变的，确保一旦创建后量纲不会改变。
+        
+        计算过程中的量纲检查：在 calculate_mass_flux 方法中，通过 Quantity 类的运算符重载自动处理量纲传播和检查，无需预先知道结果的量纲。
+        
+        Creates an empty field class that will be populated later on.
         Detects if field is either type volScalar, volVector, surfaceScalar, or 
         surfaceVector3 and creates an empty container with an adequate number of rows
         and columns (i.e., scalar = 1 column, vector = 3 columns) to hold field data.
-        Attributes:
-        Example usage:
-        这段Python代码定义了一个名为`Field`的类，它用于创建和初始化不同类型的CFD（计算流体动力学）场数据结构。下面是对这个类的详细解释：
-
-        1. **类的初始化方法**：
-        - `def __init__(self, Region, fieldName, fieldType):` 是类的构造器，用于创建类的实例。它接收三个参数：`Region`（区域信息），`fieldName`（场的名称），和`fieldType`（场的类型）。
-        - `__init__`方法的文档字符串说明了这个方法的用途，但具体的属性和使用示例部分是空的。
-        这个`Field`类是CFD模拟中用于管理场数据的基础结构，它可以根据不同的场类型创建适当大小的数据容器。通过初始化这些容器，CFD模拟可以存储和操作场数据，如速度、压力、温度等。
-
-        2. **实例属性**：
-        - `self.Region`：存储区域信息。
-        - `self.name`：存储场的名称。
-        - `self.type`：存储场的类型，可以是`'volScalarField'`、`'volVectorField'`、`'surfaceScalarField'`或`'surfaceVector3Field'`。
-        - `self.dimensions`：用于存储场的维度信息，当前为空列表。
-        - `self.boundaryPatchRef`：用于存储边界补丁的引用，当前为空字典。
-
-        3. **场类型特定逻辑**：
-        - 根据`self.type`的值，构造器会初始化不同的属性：
-            - 对于体积标量场（`volScalarField`），创建一个大小为`self.theInteriorArraySize+self.theBoundaryArraySize`乘以1的NumPy数组`self.phi`，用于存储场值，以及一个相同大小的数组`self.phi_old`用于存储上一次迭代的场值。
-            - 对于体积矢量场（`volVectorField`），数组大小相同，但是有3列，用于存储三个方向的矢量分量。
-            - 对于表面标量场（`surfaceScalarField`），数组大小基于内部面和边界面的数量。
-            - 对于表面矢量场（`surfaceVector3Field`），数组同样有3列，用于存储表面每个点的矢量分量。
-
-        4. **打印信息**：
-        - 每种类型的场初始化后，会打印一条消息，说明创建的是哪种类型的场。
-
-        5. **迭代和时间步存储**：
-        - `self.prevIter`和`self.prevTimeStep`：字典，用于存储上一次迭代和时间步的场数据。
-
-        6. **更新比例尺方法**：
-        - `self.cfdUpdateScale()`：一个方法，可能用于更新场的比例尺或相关属性，但具体实现未在代码中给出。
-
-        7. **梯度存储**：
-        - `self.phiGrad`：一个空列表，可能用于存储场的梯度信息。
-
-        8. **注释掉的代码**：
-        - 代码中有几行被注释掉的代码，这些代码看起来是用于初始化`self.phi`和`self.phi_f`的，但实际使用中选择了使用NumPy数组。
-        """
-        
+        """ 
         # self.Region=Region
         self.name = fieldName
         self.type = fieldType
-        self.dimensions=[]
-        '''
-        在 OpenFOAM 中，`dimensions` 用于定义物理量的维度。每个物理量的维度是一个具有七个分量的数组，分别表示它在以下七个基础单位下的幂次：
-        1. 质量（mass）
-        2. 长度（length）
-        3. 时间（time）
-        4. 温度（temperature）
-        5. 电流（electric current）
-        6. 物质的量（amount of substance）
-        7. 发光强度（luminous intensity）
-        这些单位遵循国际单位制（SI）。`dimensions` 主要用于确保单位的正确性，并帮助 OpenFOAM 在计算过程中执行单位检查。
-        dimensions [M L T Θ I N J] 每个字母表示一个单位的幂次，按照如下解释：
-        - `M`: 质量，单位 kg
-        - `L`: 长度，单位 m
-        - `T`: 时间，单位 s
-        - `Θ`: 温度，单位 K
-        - `I`: 电流，单位 A
-        - `N`: 物质的量，单位 mol
-        - `J`: 发光强度，单位 cd
-        在 OpenFOAM 中，物理量的维度通常写在文件开头。
-        速度的维度（单位 m/s）dimensions [0 1 -1 0 0 0 0];
-        压力的维度（单位 N/m² 或者 kg/(m·s²)）dimensions [1 -1 -2 0 0 0 0];
-        体积：`[0 3 0 0 0 0 0]` （m³）
-        力：`[1 1 -2 0 0 0 0]` （N 或 kg·m/s²）
-        密度：`[1 -3 0 0 0 0 0]` （kg/m³）
-        通过这种方式，OpenFOAM 可以确保所有物理量的单位在计算中保持一致。如果在模拟过程中出现单位不匹配的问题，OpenFOAM 将给出错误信息。
-        '''
         self.boundaryPatchRef={}
+        # 根据传入的 dimension_input 或者 fieldType 设置量纲
+        if isinstance(dimension_input, dm.Dimension):
+            dimension = dimension_input
+        elif isinstance(dimension_input, (list, tuple, np.ndarray)):
+            if len(dimension_input) != 7:
+                raise ValueError("dimension_input 必须是长度为7的列表、元组或NumPy数组，表示 [M, L, T, Θ, I, N, J]。")
+            dimension = dm.Dimension(dim_list=dimension_input)
+        # elif dimension_input is None:
+        #     # 根据场类型设置预定义量纲
+        #     # dimension = self.get_default_dimension(fieldType)
+        #     raise ValueError("dimension_input 不能为 None，必须提供预定义的量纲。")
+        else:
+            raise TypeError("dimension_input 必须是 Dimension 实例、长度为7的列表、元组或 NumPy 数组，或者为 None。")
+        
         
         if self.type == 'volScalarField':
-            self.theInteriorArraySize = Region.mesh.numberOfElements
-            self.theBoundaryArraySize = Region.mesh.numberOfBElements
+            theInteriorArraySize = Region.mesh.numberOfElements
+            theBoundaryArraySize = Region.mesh.numberOfBElements
             self.iComponent=1
 
         if self.type == 'volVectorField':
-            self.theInteriorArraySize = Region.mesh.numberOfElements
-            self.theBoundaryArraySize = Region.mesh.numberOfBElements
+            theInteriorArraySize = Region.mesh.numberOfElements
+            theBoundaryArraySize = Region.mesh.numberOfBElements
             self.iComponent=3
         
         if self.type == 'surfaceScalarField':
-            self.theInteriorArraySize = Region.mesh.numberOfInteriorFaces
-            self.theBoundaryArraySize = Region.mesh.numberOfBFaces
+            theInteriorArraySize = Region.mesh.numberOfInteriorFaces
+            theBoundaryArraySize = Region.mesh.numberOfBFaces
             self.iComponent=1
             
         if self.type == 'surfaceVectorField':
-            self.theInteriorArraySize = Region.mesh.numberOfInteriorFaces
-            self.theBoundaryArraySize =Region.mesh.numberOfBFaces
+            theInteriorArraySize = Region.mesh.numberOfInteriorFaces
+            theBoundaryArraySize =Region.mesh.numberOfBFaces
             self.iComponent=3
 
-        self.phi = np.zeros((self.theInteriorArraySize+self.theBoundaryArraySize, self.iComponent))
-        self.phi_old = np.zeros((self.theInteriorArraySize+self.theBoundaryArraySize, self.iComponent))
+        # 设置预期量纲
+        self.expected_dimensions = {
+            'phi': dimension,
+            'phi_old': dimension,
+            # 'phiGrad': dimension
+        }
+
+
+        self.phi = Q_(
+                np.zeros((theInteriorArraySize + theBoundaryArraySize, self.iComponent)), 
+                dimension
+            )
+        self.phi_old =self.phi.copy()
+
+        # 其他属性初始化
         self.cfdUpdateScale(Region)
 
-    def initializeMdotFromU(self,Region):
-        """
-        初始化面上的质量流量 phi，通过将速度 U 和密度 rho 从单元格插值到面上，并计算质量流量。
+    # def get_default_dimension(self, fieldType):
+    #     """
+    #     根据 fieldType 返回预定义的量纲。
         
-        参数：
-        - Region: 包含流体区域信息的对象。
+    #     参数:
+    #         fieldType (str): 场类型，例如 'volScalarField', 'volVectorField' 等。
         
-        过程：
-        1. 使用线性插值方法将速度 U 和密度 rho 从单元格插值到面上。
-        2. 计算每个面的质量流量 phi = rho_f * (Sf ⋅ U_f)。
-        
-        返回：
-        - self.phi: 形状为 (numberOfFaces, numberOfComponents) 的质量流量数组。
-        """
-        U_f=interp.cfdinterpolateFromElementsToFaces(Region,'linear',Region.fluid['U'].phi)
-        rho_f=interp.cfdinterpolateFromElementsToFaces(Region,'linear',Region.fluid['rho'].phi)
-        Sf=Region.mesh.faceSf
-        #calculate mass flux through faces, 必须写成二维数组的形式，便于后续与U的数组比较运算!
-            # 确保插值结果的形状匹配
-        if U_f.ndim != 2 or rho_f.ndim != 2:
-            io.cfdError('插值后的 U_f 和 rho_f 必须是二维数组')
-        
-        if Sf.shape[0] != U_f.shape[0] or Sf.shape[0] != rho_f.shape[0]:
-            io.cfdError('Sf、U_f 和 rho_f 的面数量不匹配')
-        
-        # 计算通量 Sf ⋅ U_f，得到每个面的流量，形状为 (nFaces, 1)
-        flux =mth.cfdDot(Sf, U_f)[:, np.newaxis]  # 使用 np.einsum 进行高效的点积计算
-        
-        # 计算质量流量 phi = rho_f * flux，形状为 (nFaces, 1)
-        self.phi = rho_f * flux  # 形状: (nFaces, 1)
-        
-        # 检查 phi 是否包含非有限值（如 NaN 或无穷大）
-        if not np.all(np.isfinite(self.phi)):
-            io.cfdError('计算得到的质量流量 phi 包含非有限值')
+    #     返回:
+    #         Dimension: 对应的量纲对象。
+    #     """
+    #     if fieldType == 'volScalarField':
+    #         return dimless  # 无量纲
+    #     elif fieldType == 'volVectorField':
+    #         return velocity_dim  # 速度量纲 [m/s]
+    #     elif fieldType == 'surfaceScalarField':
+    #         return flux_dim  # 压力量纲 [kg/(m·s²)]
+    #     elif fieldType == 'surfaceVectorField':
+    #         return velocity_dim  # 速度量纲 [m/s]
+    #     else:
+    #         raise ValueError(f"Unsupported field type: {fieldType}")
 
     def setDimensions(self,dimensions):
         self.dimensions=dimensions
@@ -147,65 +124,16 @@ class Field():
     def setPreviousTimeStep(self,*args):
         if args:
             iComponent = args[0]
-            self.phi_old[:,iComponent]=self.phi[:,iComponent]
+            self.phi_old.value[:,iComponent]=self.phi.value[:,iComponent].copy()
         else:
-            self.phi_old=self.phi
+            self.phi_old=self.phi.copy()
 
     def setPreviousIter(self,*args):
         if args:
             iComponent = args[0]
-            self.prevIter[:,iComponent]=self.phi[:,iComponent]
+            self.prevIter.value[:,iComponent]=self.phi.value[:,iComponent].copy()
         else:
-            self.prevIter=self.phi
-        
-    def cfdGetSubArrayForInterior0(self,Region,*args):    
-        if self.type == 'surfaceScalarField':
-            self.phiInteriorSubArray = self.phi[0:Region.mesh.numberOfInteriorFaces]
-        elif self.type == 'volScalarField':
-            self.phiInteriorSubArray = self.phi[0:Region.mesh.numberOfElements]    
-        elif self.type == 'volVectorField':
-            if args:
-                iComponent = args[0]
-                self.phiInteriorSubArray = self.phi[0:Region.mesh.numberOfElements,iComponent] 
-            else:
-                self.phiInteriorSubArray = self.phi[0:Region.mesh.numberOfElements, :]
-
-    def cfdGetSubArrayForBoundary0(self,Region,*args):
-        if self.type == 'surfaceScalarField':
-            self.phiBoundarySubArray = self.phi[Region.mesh.numberOfInteriorFaces:Region.mesh.numberOfFaces]
-        elif self.type == 'volScalarField':
-            self.phiBoundarySubArray = self.phi[Region.mesh.numberOfElements:Region.mesh.numberOfElements+Region.mesh.numberOfBElements]
-        elif self.type == 'volVectorField':
-            if args:
-                iComponent = args[0]
-                self.phiBoundarySubArray = self.phi[Region.mesh.numberOfElements:Region.mesh.numberOfElements+Region.mesh.numberOfBElements,iComponent] 
-            else:
-                self.phiBoundarySubArray = self.phi[Region.mesh.numberOfElements:Region.mesh.numberOfElements+Region.mesh.numberOfBElements, :]
-
-    def cfdGetPrevTimeStepSubArrayForInterior0(self,Region,*args):    
-        if self.type == 'surfaceScalarField':
-            self.phi_oldInteriorSubArray = self.phi_old[0:Region.mesh.numberOfInteriorFaces]
-        elif self.type == 'volScalarField':
-            self.phi_oldInteriorSubArray = self.phi_old[0:Region.mesh.numberOfElements]
-        elif self.type == 'volVectorField':
-            if args:
-                iComponent = args[0]
-                self.phi_oldInteriorSubArray = self.phi_old[0:Region.mesh.numberOfElements,iComponent]
-            else:
-                self.phi_oldInteriorSubArray = self.phi_old[0:Region.mesh.numberOfElements,:]
-
-    def cfdGetPrevTimeStepSubArrayForBoundary0(self,Region,*args):    
-        if self.type == 'surfaceScalarField':
-            self.phiBoundarySubArray = self.phi_old[Region.mesh.numberOfInteriorFaces:Region.mesh.numberOfFaces]
-        elif self.type == 'volScalarField':
-            self.phiBoundarySubArray = self.phi_old[Region.mesh.numberOfInteriorFaces:Region.mesh.numberOfFaces]
-        elif self.type == 'volVectorField':
-            if args:
-                iComponent = args[0]
-                self.phiBoundarySubArray = self.phi_old[Region.mesh.numberOfElements:Region.mesh.numberOfElements+Region.mesh.numberOfBElements,iComponent] 
-            else:
-                self.phiBoundarySubArray = self.phi_old[Region.mesh.numberOfElements:Region.mesh.numberOfElements+Region.mesh.numberOfBElements,:]
-        
+            self.prevIter=self.phi.copy()
         
     def cfdUpdateScale(self,Region):
         """Update the min, max and scale values of a field in Region
@@ -249,14 +177,15 @@ class Field():
         - `print(phiMax)`：在控制台打印出最大值，这可能是用于调试的输出。
 
         这个方法的目的是确保CFD模拟中的每个场都有一个合适的比例尺，这对于后续的计算和可视化是很重要的。通过比较场的最大值和其他相关参数，这个方法为每个场设置了一个合适的比例尺。
-        """    
-        theMagnitude = mth.cfdMag(self.phi)
+        """
+        phivalue=self.phi.value
+        theMagnitude = mth.cfdMag(phivalue)
         
         try:
             #see if it is a vector
             iter(theMagnitude)
-            phiMax=max(mth.cfdMag(self.phi))
-            phiMin=min(mth.cfdMag(self.phi))
+            phiMax=np.max(theMagnitude)
+            phiMin=np.min(theMagnitude)
             # print(phiMax)
         except TypeError:
             #knows it is scalar, so ...
