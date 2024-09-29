@@ -22,9 +22,9 @@ def initializeMdotFromU(Region):
     """
     U_f=interp.cfdinterpolateFromElementsToFaces(Region,'linear',Region.fluid['U'].phi.value)
     rho_f=interp.cfdinterpolateFromElementsToFaces(Region,'linear',Region.fluid['rho'].phi.value)
-    Sf=Region.mesh.faceSf
+    Sf=Region.mesh.faceSf.value
     #calculate mass flux through faces, 必须写成二维数组的形式，便于后续与U的数组比较运算!
-        # 确保插值结果的形状匹配
+    # 确保插值结果的形状匹配
     if U_f.ndim != 2 or rho_f.ndim != 2:
         io.cfdError('插值后的 U_f 和 rho_f 必须是二维数组')
     

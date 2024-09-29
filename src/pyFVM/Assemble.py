@@ -1,10 +1,10 @@
 import numpy as np
-import os
 import cfdtool.IO as io
-# import pyFVM.Field as field
 import cfdtool.Math as mth
 import cfdtool.Interpolate as interp
 import pyFVM.cfdGetTools as tools
+from cfdtool.quantities import Quantity as Q_
+import cfdtool.dimensions as dm
 
 class Assemble:
     def __init__(self,Region,theEquationName):
@@ -633,14 +633,7 @@ class Assemble:
         """
         print('Inside cfdAssembleTransientTerm')
         theScheme = Region.dictionaries.fvSchemes['ddtSchemes']['default']
-        # if theScheme == 'steadyState':
-        #     pass
-        # el
         if theScheme == 'Euler':
-            # if args:
-            #     iComponent=args[0]
-            #     self.assembleFirstOrderEulerTransientTerm(Region,iComponent)
-            # else:
             self.assembleFirstOrderEulerTransientTerm(Region)
         else:
             io.cfdError(theScheme+' ddtScheme is incorrect')
@@ -684,8 +677,8 @@ class Assemble:
         这个方法是CFD模拟中数值求解过程的一部分，用于组装瞬态项，这对于求解流体动力学方程是必要的。通过这种方式，可以方便地访问和更新通量信息，以实现模拟的数值求解。
         """   
         volumes = Region.mesh.elementVolumes[:,np.newaxis]
-        deltaT = Region.dictionaries.controlDict['deltaT']
-        local_FluxC = np.squeeze(volumes*Region.fluid['rho'].phi[:Region.mesh.numberOfElements])/deltaT 
+        deltaT = Q_(Region.dictionaries.controlDict['deltaT'],dm.time_dim)
+        local_FluxC =volumes*Region.fluid['rho'].phi[:Region.mesh.numberOfElements]/deltaT 
         local_FluxC_old = -np.squeeze(volumes*Region.fluid['rho'].phi_old[:Region.mesh.numberOfElements])/deltaT
         Region.fluxes.FluxC = local_FluxC
         Region.fluxes.FluxC_old = local_FluxC_old

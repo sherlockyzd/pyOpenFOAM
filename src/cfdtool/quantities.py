@@ -21,10 +21,14 @@ class Quantity:
             value (int, float, list, tuple, numpy.ndarray): 数值，可以是标量或数组。
             dimension (Dimension): 量纲对象，表示物理量的量纲。
         """
-        if isinstance(value, (int, float)):
+        if isinstance(value, np.ndarray):
+             self.__value = value
+        elif isinstance(value, float):
             self.__value = np.array([value], dtype=float)
-        elif isinstance(value, (list, tuple, np.ndarray)):
-            self.__value = np.array(value, dtype=float)
+        elif isinstance(value,int):
+            self.__value = np.array([value], dtype=int)
+        elif isinstance(value, (list, tuple)):
+            self.__value = np.array(value)
         else:
             raise TypeError("value 必须是 int、float、list、tuple 或 numpy.ndarray 类型。")
         
@@ -58,10 +62,14 @@ class Quantity:
         参数:
             new_value (int, float, list, tuple, numpy.ndarray): 新的数值，可以是标量或数组。
         """
-        if isinstance(new_value, (int, float)):
+        if isinstance(new_value, np.ndarray):
+            self.__value=new_value
+        elif isinstance(new_value, int):
+            self.__value = np.array([new_value], dtype=int)
+        elif isinstance(new_value, int, float):
             self.__value = np.array([new_value], dtype=float)
-        elif isinstance(new_value, (list, tuple, np.ndarray)):
-            self.__value = np.array(new_value, dtype=float)
+        elif isinstance(new_value, (list, tuple)):
+            self.__value = np.array(new_value)
         else:
             raise TypeError("new_value 必须是 int、float、list、tuple 或 numpy.ndarray 类型。")
     
@@ -276,9 +284,8 @@ class Quantity:
         异常:
             TypeError: 如果 power 不是整数。
         """
-        if not isinstance(power, int):
-            raise TypeError("幂运算的指数必须是整数。")
-        
+        # if not isinstance(power, int):
+        #     raise TypeError("幂运算的指数必须是整数。")
         new_value = self.value ** power
         new_dimension = self.dimension ** power
         return Quantity(new_value, new_dimension)
@@ -335,8 +342,8 @@ class Quantity:
             Quantity: 切片后的 Quantity 对象。
         """
         # 使用 self.value[key] 获取切片后的数值部分
-        sliced_value = self.value[key]
-        # 返回一个新的 Quantity 对象，量纲与原对象相同
+        sliced_value = self.__value[key]
+        # 不在 __init__ 中重新创建数组，直接传入现有的 ndarray
         return Quantity(sliced_value, self.dimension)
     
     def __setitem__(self, key, value):
@@ -352,10 +359,8 @@ class Quantity:
             # 如果传入的是 Quantity 对象，确保量纲相同
             if self.dimension != value.dimension:
                 raise ValueError("量纲不匹配，无法进行赋值操作。")
-            self.__value[key] = value.value.copy()
-        # else:
-        #     # 直接设置新的值
-        #     self.__value[key] = value
+            self.__value[key] = value.value
+
 
     def apply_function(self, func, *args, **kwargs):
         """

@@ -199,7 +199,7 @@ class Field(DimensionChecked):
             phiScale = max(phiMax,p_dyn)
 
         elif self.name=='U':
-            phiScale = max(Region.lengthScale,phiMax)
+            phiScale = max(Region.mesh.lengthScale.value,phiMax)
         else: 
             phiScale = phiMax
 

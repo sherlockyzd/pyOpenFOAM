@@ -133,6 +133,14 @@ class Polymesh():
         self.Sf_b=self.faceSf[self.numberOfInteriorFaces:self.numberOfFaces]
 
         self.iBElements = np.arange(self.numberOfElements, self.numberOfElements+self.numberOfBFaces, dtype=int)
+
+        self.cfdGeometricLengthScale()
+
+    def cfdGeometricLengthScale(self):
+        # Calculates the geometric length scale of the mesh. 
+        # Length scale = [sum(element volume)]^(1/3)
+        self.totalVolume = Q_(np.sum(self.elementVolumes.value),dm.volume_dim)
+        self.lengthScale = self.totalVolume**(1/3)
         
     def cfdReadPointsFile(self):
         """ Reads the constant/polyMesh/points file in polymesh directory and stores the points coordinates

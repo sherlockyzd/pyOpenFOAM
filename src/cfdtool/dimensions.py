@@ -47,7 +47,7 @@ class Dimension:
             raise ValueError("dim_list must be a length-7 list, tuple, or NumPy array representing [M, L, T, Θ, I, N, J].")
         
         # 设置属性时确保只允许在初始化时赋值，后续不可修改
-        value=np.array(dim_list, dtype=np.int8)
+        value=np.array(dim_list, dtype=np.float64)
         object.__setattr__(self, '_value', value)
 
         # 将数组设置为只读，确保不可变性
@@ -74,39 +74,54 @@ class Dimension:
             raise AttributeError(f"Cannot modify the '{name}' attribute, it is read-only.")
         super().__setattr__(name, value)
 
-    def __mul__(self, other):
+    def __mul__(self, other)-> 'Dimension':
         if not isinstance(other, Dimension):
             raise TypeError("Multiplication is only supported between Dimension instances.")
         new_dims = self.value + other.value
         return Dimension(dim_list=new_dims)
     
-    def __truediv__(self, other):
+    def __truediv__(self, other)-> 'Dimension':
         if not isinstance(other, Dimension):
             raise TypeError("Division is only supported between Dimension instances.")
         new_dims = self.value - other.value
         return Dimension(dim_list=new_dims)
     
-    def __pow__(self, power):
-        if not isinstance(power, int):
-            raise TypeError("Power must be an integer.")
+    def __pow__(self, power)-> 'Dimension':
+        if not isinstance(power, (int, float)):
+            raise TypeError("Power must be an integer or float.")
         new_dims = self.value * power
         return Dimension(dim_list=new_dims)
     
-    def __eq__(self, other):
+    def __eq__(self, other)-> bool:
         if not isinstance(other, Dimension):
             return False
-        return np.array_equal(self.value, other.value)
+        return np.allclose(self.value, other.value, atol=1e-10)
     
-    def __str__(self):
-        labels = ['M', 'L', 'T', 'Theta', 'I', 'N', 'J']
-        dim_str = " ".join(f"{label}^{power}" if power != 0 else "" for label, power in zip(labels, self.value))
-        return " ".join(filter(None, dim_str.split()))
+    def __str__(self) -> str:
+        labels = ['M', 'L', 'T', 'Θ', 'I', 'N', 'J']
+        components = []
+        for label, power in zip(labels, self.value):
+            if np.isclose(power, 0.0):
+                continue
+            elif np.isclose(power, 1.0):
+                components.append(f"{label}")
+            elif np.isclose(power, -1.0):
+                components.append(f"{label}^-1")
+            else:
+                components.append(f"{label}^{power}")
+        return " ".join(components) if components else "Dimensionless"
     
-    def __repr__(self):
+    def __repr__(self)-> str:
         return f"Dimension({self.value.tolist()})"
     
-    def copy(self):
-        return Dimension(dim_list=self.value)
+    def copy(self)-> 'Dimension':
+        return Dimension(dim_list=self.value.copy())
+    
+    def grad(self)-> 'Dimension':
+        # 复制 dimensions 对象，确保可修改
+        value_copy = self.value.copy()
+        value_copy[1] -= 1
+        return Dimension(dim_list=value_copy)
 
 # 定义常用量纲
 

@@ -144,11 +144,6 @@ class Region():
         self.dictionaries.cfdReadThermophysicalProperties(self)
 
         """cfdGeometricLengthScale() and self.dictionaries.cfdReadTimeDirectory() require the mesh and therefore are not included in the __init__ function of FoamDictionaries and are instead called after the self.mesh=pm.Polymesh(self) line above."""
-        # self.cfdGeometricLengthScale()
-        # Calculates the geometric length scale of the mesh. 
-        # Length scale = [sum(element volume)]^(1/3)
-        self.totalVolume = np.sum(self.mesh.elementVolumes.value)
-        self.lengthScale = self.totalVolume**(1/3)
         self.dictionaries.cfdReadTimeDirectory(self)
 
     def cfdUpdateProperty(self):
