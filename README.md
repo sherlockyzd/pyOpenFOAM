@@ -41,49 +41,6 @@ cfd_case.RunCase()
 3. **结果可视化**: 使用内置的可视化工具或导出数据到ParaView。
 
 ## 文件结构及调用关系
-```
-|—— 0
-|    |—— p
-|    |—— T
-|    |—— U
-|—— constant
-|    |—— g
-|    |—— polyMesh
-|        |—— boundary
-|        |—— faces
-|        |—— neighbour
-|        |—— owner
-|        |—— points
-|    |—— transportProperties
-|—— convergence
-|    |—— convergenceUp.out
-|—— hola.foam
-|—— pyFVM
-|    |—— Assemble.py
-|    |—— cfdGetTools.py
-|    |—— cfdPlot.py
-|    |—— Coefficients.py
-|    |—— Equation.py
-|    |—— Field.py
-|    |—— Fluxes.py
-|    |—— FoamDictionaries.py
-|    |—— Gradient.py
-|    |—— Interpolate.py
-|    |—— IO.py
-|    |—— Math.py
-|    |—— Model.py
-|    |—— Polymesh.py
-|    |—— Region.py
-|    |—— Solve.py
-|    |—— Time.py
-|—— pyFVMScript.py
-|—— system
-|    |—— blockMeshDict
-|    |—— controlDict
-|    |—— fvSchemes
-|    |—— fvSolution
-|—— test.py
-```
 ### 1. pyFVMScript.py
 - **角色**: 主执行脚本。
 - **功能**: 创建 `Region` 实例并运行案例。
@@ -199,3 +156,86 @@ cfd_case.RunCase()
 ## 许可
 
 pyFVM 是开源软件，采用 [MIT 许可证](LICENSE)。
+
+## 联系方式
+邮箱：yuzd17@tsinghua.org.cn
+如有任何问题或建议，也欢迎通过GitHub Issues与我联系。
+
+## code structure tree
+```
+pyOpenFOAM
+├─ example
+│  ├─ cavity
+│  │  ├─ 0
+│  │  │  ├─ p
+│  │  │  ├─ T
+│  │  │  └─ U
+│  │  ├─ constant
+│  │  │  ├─ g
+│  │  │  ├─ polyMesh
+│  │  │  │  ├─ boundary
+│  │  │  │  ├─ faces
+│  │  │  │  ├─ neighbour
+│  │  │  │  ├─ owner
+│  │  │  │  └─ points
+│  │  │  └─ transportProperties
+│  │  ├─ convergence
+│  │  │  └─ convergenceUp.out
+│  │  ├─ foam.foam
+│  │  ├─ pyFVMScript.py
+│  │  └─ system
+│  │     ├─ blockMeshDict
+│  │     ├─ controlDict
+│  │     ├─ fvSchemes
+│  │     └─ fvSolution
+│  └─ flange
+│     ├─ 0
+│     │  └─ T
+│     ├─ constant
+│     │  ├─ polyMesh
+│     │  │  ├─ boundary
+│     │  │  ├─ faces
+│     │  │  ├─ faceZones
+│     │  │  ├─ neighbour
+│     │  │  ├─ owner
+│     │  │  └─ points
+│     │  └─ transportProperties
+│     ├─ convergence
+│     │  └─ convergenceUp.out
+│     ├─ foam.foam
+│     ├─ pyFVMScript.py
+│     └─ system
+│        ├─ controlDict
+│        ├─ fvSchemes
+│        └─ fvSolution
+├─ README.md
+├─ src
+│  ├─ cfdtool
+│  │  ├─ base.py
+│  │  ├─ cfdPlot.py
+│  │  ├─ decorators.py
+│  │  ├─ dimensions.py
+│  │  ├─ Interpolate.py
+│  │  ├─ IO.py
+│  │  ├─ Math.py
+│  │  ├─ quantities.py
+│  │  ├─ Solve.py
+│  │  ├─ Time.py
+│  ├─ config.py
+│  ├─ pyFVM
+│  │  ├─ Assemble.py
+│  │  ├─ cfdfunction.py
+│  │  ├─ cfdGetTools.py
+│  │  ├─ Coefficients.py
+│  │  ├─ Equation.py
+│  │  ├─ Field.py
+│  │  ├─ Fluxes.py
+│  │  ├─ FoamDictionaries.py
+│  │  ├─ Gradient.py
+│  │  ├─ Model.py
+│  │  ├─ Polymesh.py
+│  │  ├─ Region.py
+└─ test
+   ├─ Quantity_test.py
+   └─ test.py
+```

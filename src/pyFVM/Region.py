@@ -1,3 +1,4 @@
+import numpy as np
 import cfdtool.IO as io
 import pyFVM.FoamDictionaries as fd
 import pyFVM.Polymesh as pm
@@ -9,6 +10,7 @@ import pyFVM.Model as model
 import cfdtool.Solve as solve
 import cfdtool.cfdPlot as plt
 import config as cfg
+
 
 class Region():
     """Sets up the simulation's 'Region'.
@@ -145,7 +147,7 @@ class Region():
         # self.cfdGeometricLengthScale()
         # Calculates the geometric length scale of the mesh. 
         # Length scale = [sum(element volume)]^(1/3)
-        self.totalVolume = sum(self.mesh.elementVolumes)
+        self.totalVolume = np.sum(self.mesh.elementVolumes.value)
         self.lengthScale = self.totalVolume**(1/3)
         self.dictionaries.cfdReadTimeDirectory(self)
 

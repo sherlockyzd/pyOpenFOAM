@@ -1124,7 +1124,7 @@ class Polymesh():
             self.elementCentroids.value[iElement]=localVolumeCentroidSum/localVolumeSum
             self.elementVolumes.value[iElement]=localVolumeSum
         
-        
+        #计算内部面与单元的相对几何属性
         n=self.facen[:self.numberOfInteriorFaces]
         own=self.owners[:self.numberOfInteriorFaces]
         nei=self.neighbours[:self.numberOfInteriorFaces]
@@ -1133,71 +1133,34 @@ class Polymesh():
         nE= self.faceCF.value[:self.numberOfInteriorFaces]/self.faceDist.value[:self.numberOfInteriorFaces][:, np.newaxis]
         self.faceCFn[:self.numberOfInteriorFaces]=nE
         if self.OrthogonalCorrectionMethod=='Minimum':
-            facemagEf=np.einsum('ij,ij->i',self.faceSf.value[:self.numberOfInteriorFaces],nE)
-            self.geoDiff_f[:self.numberOfInteriorFaces]=facemagEf/self.faceDist.value[:self.numberOfInteriorFaces]
-            self.faceEf[:self.numberOfInteriorFaces]=facemagEf[:, np.newaxis]*nE
+            facemagEf=np.dot(self.faceSf.value[:self.numberOfInteriorFaces],nE)
+            self.geoDiff_f.value[:self.numberOfInteriorFaces]=facemagEf/self.faceDist.value[:self.numberOfInteriorFaces]
+            self.faceEf.value[:self.numberOfInteriorFaces]=facemagEf[:, np.newaxis]*nE
         elif self.OrthogonalCorrectionMethod=='Orthogonal':
-            self.faceEf[:self.numberOfInteriorFaces]=self.faceAreas.value[:self.numberOfInteriorFaces][:, np.newaxis]*nE
-            self.geoDiff_f[:self.numberOfInteriorFaces]=self.faceAreas.value[:self.numberOfInteriorFaces]/self.faceDist.value[:self.numberOfInteriorFaces]
+            self.faceEf.value[:self.numberOfInteriorFaces]=self.faceAreas.value[:self.numberOfInteriorFaces, np.newaxis]*nE
+            self.geoDiff_f.value[:self.numberOfInteriorFaces]=self.faceAreas.value[:self.numberOfInteriorFaces]/self.faceDist.value[:self.numberOfInteriorFaces]
         elif self.OrthogonalCorrectionMethod=='OverRelaxed':
-            facemagEf=self.faceAreas.value[:self.numberOfInteriorFaces][:, np.newaxis]*self.faceAreas.value[:self.numberOfInteriorFaces]/np.einsum('ij,ij->i',self.faceSf.value[:self.numberOfInteriorFaces],nE)
-            self.geoDiff_f[:self.numberOfInteriorFaces]=facemagEf/self.faceDist.value[:self.numberOfInteriorFaces]
-            self.faceEf[:self.numberOfInteriorFaces]=facemagEf[:, np.newaxis]*nE
+            facemagEf=self.faceAreas.value[:self.numberOfInteriorFaces]*self.faceAreas.value[:self.numberOfInteriorFaces]/mth.cfdDot(self.faceSf.value[:self.numberOfInteriorFaces],nE)
+            self.geoDiff_f.value[:self.numberOfInteriorFaces]=facemagEf/self.faceDist.value[:self.numberOfInteriorFaces]
+            self.faceEf.value[:self.numberOfInteriorFaces]=facemagEf[:, np.newaxis]*nE
         else:
             io.cfdError('Region.mesh.OrthogonalCorrectionMethod not exist')
-        self.faceTf[:self.numberOfInteriorFaces]=self.faceSf.value[:self.numberOfInteriorFaces]-self.faceEf[:self.numberOfInteriorFaces]
-        
-        for iFace in range(self.numberOfInteriorFaces):
-            
-            n=self.facen[iFace]
-            # self.faceSf[iFace]/np.linalg.norm(self.faceSf[iFace])
-            own=self.owners[iFace]
-            nei = self.neighbours[iFace]
-            
-            self.faceCF.value[iFace]=self.elementCentroids[nei]-self.elementCentroids[own]
-            self.faceDist[iFace]=np.linalg.norm(self.faceCF[iFace])
-            nE= self.faceCF[iFace]/self.faceDist[iFace]
-            self.faceCFn[iFace]=nE
-            if self.OrthogonalCorrectionMethod=='Minimum':
-                facemagEf=np.dot(self.faceSf[iFace],nE)
-                self.geoDiff_f[iFace]=facemagEf/self.faceDist[iFace]
-                self.faceEf[iFace]=facemagEf*nE
-            elif self.OrthogonalCorrectionMethod=='Orthogonal':
-                self.faceEf[iFace]=self.faceAreas[iFace]*nE
-                self.geoDiff_f[iFace]=self.faceAreas[iFace]/self.faceDist[iFace]
-            elif self.OrthogonalCorrectionMethod=='OverRelaxed':
-                facemagEf=self.faceAreas[iFace]*self.faceAreas[iFace]/np.dot(self.faceSf[iFace],nE)
-                self.geoDiff_f[iFace]=facemagEf/self.faceDist[iFace]
-                self.faceEf[iFace]=facemagEf*nE
-            else:
-                io.cfdError('Region.mesh.OrthogonalCorrectionMethod not exist')
-            self.faceTf[iFace]=self.faceSf[iFace]-self.faceEf[iFace]
+        self.faceTf[:self.numberOfInteriorFaces]=self.faceSf[:self.numberOfInteriorFaces]-self.faceEf[:self.numberOfInteriorFaces]
+        self.faceCf[:self.numberOfInteriorFaces]=self.faceCentroids[:self.numberOfInteriorFaces]-self.elementCentroids[own]
+        self.faceFf[:self.numberOfInteriorFaces]=self.faceCentroids[:self.numberOfInteriorFaces]-self.elementCentroids[nei]
+        self.faceWeights[:self.numberOfInteriorFaces]=(-mth.cfdDot(self.faceFf.value[:self.numberOfInteriorFaces],n))/(-mth.cfdDot(self.faceFf.value[:self.numberOfInteriorFaces],n)+mth.cfdDot(self.faceCf.value[:self.numberOfInteriorFaces],n))
 
-            self.faceCf[iFace]=self.faceCentroids[iFace]-self.elementCentroids[own]
-            self.faceFf[iFace]=self.faceCentroids[iFace]-self.elementCentroids[nei]
-            self.faceWeights[iFace]=(-np.dot(self.faceFf[iFace],n))/(-np.dot(self.faceFf[iFace],n)+np.dot(self.faceCf[iFace],n))
+        #计算外部面与单元的相对几何属性
+        n=self.facen[self.numberOfInteriorFaces:]
+        self.faceCFn[self.numberOfInteriorFaces:]=n
+        own=self.owners[self.numberOfInteriorFaces:]
+        self.faceCF[self.numberOfInteriorFaces:]=self.faceCentroids[self.numberOfInteriorFaces:]-self.elementCentroids[own]
+        self.faceCf[self.numberOfInteriorFaces:]=self.faceCF[self.numberOfInteriorFaces:]
+        self.faceWeights[self.numberOfInteriorFaces:]=1
+        self.faceDist.value[self.numberOfInteriorFaces:]=mth.cfdDot(self.faceCf.value[self.numberOfInteriorFaces:], n)
+        self.geoDiff_f[self.numberOfInteriorFaces:]=self.faceAreas[self.numberOfInteriorFaces:]/self.faceDist[self.numberOfInteriorFaces:]
+        self.wallDistLimited.value[self.numberOfInteriorFaces:]=np.maximum(self.faceDist.value[self.numberOfInteriorFaces:], 0.05*np.linalg.norm(self.faceCf.value[self.numberOfInteriorFaces:],axis=1))
 
-        # self.gDiff_f=np.asarray(self.faceEf)/np.asarray(self.faceDist)[:, np.newaxis]
-
-        for iBFace in range(self.numberOfInteriorFaces, self.numberOfFaces):
-            
-            
-            n=self.facen[iBFace]
-            self.faceCFn[iBFace]=n
-            # self.faceSf[iBFace]/np.linalg.norm(self.faceSf[iBFace])
-            own=self.owners[iBFace]
-            self.faceCF[iBFace]=self.faceCentroids[iBFace]-self.elementCentroids[own]
-            # nE= self.faceCF[iBFace]/np.linalg.norm(self.faceCF[iBFace])
-            # self.faceEf[iBFace]=np.dot(self.faceCF[iBFace],nE)*nE
-            # self.faceTf[iBFace]=self.faceCF[iFace]-self.faceEf[iBFace]
-            
-            self.faceCf[iBFace]=self.faceCentroids[iBFace]-self.elementCentroids[own]  
-            self.faceWeights[iBFace]=1
-            self.faceDist[iBFace]= max(np.dot(self.faceCf[iBFace], n), 1e-10)
-            self.geoDiff_f[iBFace]=self.faceAreas[iBFace]/self.faceDist[iBFace]
-            self.wallDistLimited[iBFace]= max(self.faceDist[iBFace], 0.05*np.linalg.norm(self.faceCf[iBFace]))        
-        
-        # self.facen=mth.cfdUnit(self.faceSf)
         # 确保权重在合理范围内
         if not np.all((self.faceWeights >= 0) & (self.faceWeights <= 1)):
             io.cfdError('Interpolation weights out of bounds: some g_f values are not between 0 and 1')
