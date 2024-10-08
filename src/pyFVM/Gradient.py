@@ -139,7 +139,8 @@ class Gradient():
         #face contribution, treats vectors as three scalars (u,v,w)
         for iComponent in range(self.theNumberOfComponents):
             #vectorized linear interpolation (same as Interpolate.interpolateFromElementsToFaces('linear'))
-            phi_f[:self.iFaces,iComponent]=Region.mesh.interiorFaceWeights*Region.fluid[self.phiName].phi[Region.mesh.interiorFaceNeighbours,iComponent]+(1.0-Region.mesh.interiorFaceWeights)*Region.fluid[self.phiName].phi[Region.mesh.interiorFaceOwners,iComponent]
+            phi_f[:self.iFaces,iComponent]=Region.mesh.interiorFaceWeights*Region.fluid[self.phiName].phi[Region.mesh.interiorFaceNeighbours,iComponent] +\
+                (1.0-Region.mesh.interiorFaceWeights)*Region.fluid[self.phiName].phi[Region.mesh.interiorFaceOwners,iComponent]
             # interior face contribution
             phi_f_Sf=phi_f[:self.iFaces,iComponent,np.newaxis]*Region.mesh.interiorFaceSf[:self.iFaces,:]# phi_f*Sf   
             #accumlator of phi_f*Sf for the owner centroid of the face  

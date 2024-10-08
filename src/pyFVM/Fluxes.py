@@ -1,5 +1,6 @@
 import numpy as np
-# import os
+from cfdtool.quantities import Quantity as Q_
+import cfdtool.dimensions as dm
 
 class Fluxes():
     
@@ -42,33 +43,59 @@ class Fluxes():
         `Fluxes` 类是CFD模拟中用于管理通量计算的关键组件，它提供了一种机制来存储和操作面通量和体积通量的系数，这些是求解流体动力学方程时的重要数据。通过这种方式，可以方便地访问和更新通量信息，以实现模拟的数值求解。
         '''
         # self.region=Region
-    #     self.setupFluxes(Region)
+        self.setupFluxes(Region)
 
-    # def setupFluxes(self,Region,**kwargs):
+    def setupFluxes(self,Region,**kwargs):
         theNumberOfFaces=Region.mesh.numberOfFaces
         theNumberOfElements=Region.mesh.numberOfElements
-        #值保存在面心上
-        #face fluxes
-        # face flux linearization coefficients for cell C (cell of interest)
-        self.FluxCf=np.zeros((theNumberOfFaces),dtype=float)
-        # face flux linearization coefficients for neighbouring cell
-        self.FluxFf=np.zeros((theNumberOfFaces),dtype=float)
-        # non-linear face coefficients 
-        self.FluxVf=np.zeros((theNumberOfFaces),dtype=float)
-        # total face flux (equal to FluxCf*phiC+FluxFf*phiF+FluxVf)
-        self.FluxTf= np.zeros((theNumberOfFaces),dtype=float)
+        self.FluxCf = {}  # 面通量的线性化系数，用于单元格 C（感兴趣单元格）
+        self.FluxFf = {}  # 面通量的线性化系数，用于邻近单元格
+        self.FluxVf = {}  # 面通量的非线性系数
+        self.FluxTf = {}  # 总面通量，等于 FluxCf * phiC + FluxFf * phiF + FluxVf
 
-        #值保存在体心上
-        #Volume fluxes (treated as source terms)
-        self.FluxC=np.zeros((theNumberOfElements),dtype=float)
-        # volume flux equal to source value times cell volume (Q_{C}^{phi} * Vc)
-        self.FluxV=np.zeros((theNumberOfElements),dtype=float)
-        self.FluxT= np.zeros((theNumberOfElements),dtype=float)
-        # volume fluxes from previous time step
-        self.FluxC_old=np.zeros((theNumberOfElements),dtype=float)
+        self.FluxC = {}   # 体积通量的线性化系数
+        self.FluxV = {}   # 体积通量，等于源值乘以单元格体积（Q_C^phi * Vc）
+        self.FluxT = {}   # 总体积通量
+        self.FluxC_old = {}  # 上一时间步的体积通量
+        # 为每个方程初始化通量
+        for equation_name in Region.model.equations:
+            CoffDim = Region.model.equations[equation_name].CoffDim
+            Dim=Region.fluid[equation_name].phi.dimension*CoffDim
+            #值保存在面心上
+            #face fluxes
+            # face flux linearization coefficients for cell C (cell of interest)
+            self.FluxCf[equation_name]=Q_(np.zeros((theNumberOfFaces),dtype=float),CoffDim)
+            # face flux linearization coefficients for neighbouring cell
+            self.FluxFf[equation_name]=Q_(np.zeros((theNumberOfFaces),dtype=float),CoffDim)
+            # non-linear face coefficients 
+            self.FluxVf[equation_name]=Q_(np.zeros((theNumberOfFaces),dtype=float),Dim)
+            # total face flux (equal to FluxCf*phiC+FluxFf*phiF+FluxVf)
+            self.FluxTf[equation_name]=Q_(np.zeros((theNumberOfFaces),dtype=float),Dim)
 
+            #值保存在体心上
+            #Volume fluxes (treated as source terms)
+            self.FluxC[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),CoffDim)
+            # volume fluxes from previous time step
+            self.FluxC_old[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),CoffDim)
+            # volume flux equal to source value times cell volume (Q_{C}^{phi} * Vc)
+            self.FluxV[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),Dim)
+            self.FluxT[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),Dim)
 
         print('fluxes success!')
+    
+    def cfdZeroElementFLUXCoefficients(self,equation_name):
+        # print('Inside cfdZeroElementFLUXCoefficients')
+        self.FluxC[equation_name].value.fill(0)
+        self.FluxV[equation_name].value.fill(0)
+        self.FluxT[equation_name].value.fill(0)
+        self.FluxC_old[equation_name].value.fill(0)
+
+    def cfdZeroFaceFLUXCoefficients(self,equation_name):
+        # print('Inside cfdZeroFaceFLUXCoefficients')
+        self.FluxCf[equation_name].value.fill(0)
+        self.FluxVf[equation_name].value.fill(0)
+        self.FluxTf[equation_name].value.fill(0)
+        self.FluxFf[equation_name].value.fill(0)
 
 
 

@@ -113,6 +113,7 @@ class Dimension:
     
     def __repr__(self)-> str:
         return f"Dimension({self.value.tolist()})"
+        # return "Dimension(" + " ".join(self.__str__) + ")"
     
     def copy(self)-> 'Dimension':
         return Dimension(dim_list=self.value.copy())

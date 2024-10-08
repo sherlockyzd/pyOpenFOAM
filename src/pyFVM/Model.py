@@ -42,6 +42,7 @@ class Model():
                     Region.fluid['pprime'].boundaryPatchRef[iBPatch]['value']=[0.0]
             Region.fluid['p'].Grad=grad.Gradient(Region,'p')
             Region.fluid['pprime'].Grad=grad.Gradient(Region,'pprime')
+            self.equations['p'].CoffDim=dm.length_dim*dm.time_dim
             self.DefineDUfield(Region,'DU')
             self.DefineDUfield(Region,'DUT')
             self.DefineDUSffield(Region,'DUSf')
@@ -75,6 +76,7 @@ class Model():
                     self.rhophi_exists=True  
 
             Region.fluid['T'].Grad=grad.Gradient(Region,'T')
+            self.equations['T'].CoffDim=dm.flux_dim
 
     def DefineMomentumEquation(self,Region):
         initCasePath=Region.caseDirectoryPath + os.sep+'0'
@@ -112,7 +114,8 @@ class Model():
             #Define mdot_f field
             self.DefineMdot_f(Region)
             Region.fluid['U'].Grad=grad.Gradient(Region,'U')
-            
+            self.equations['U'].CoffDim=dm.flux_dim
+
     def DefineScalarTransportEquation(self,Region):
         pass
 

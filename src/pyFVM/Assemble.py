@@ -13,6 +13,8 @@ class Assemble:
         self.theEquationName=theEquationName
         ## The instance of Equation stored in the self.region.model dictionary
         self.theEquation=Region.model.equations[self.theEquationName]
+        self.CoffDim=self.theEquation.CoffDim
+        self.Dim=Region.fluid[self.theEquationName].phi.dimension*self.CoffDim
 
     def cfdAssembleEquation(self,Region,*args): 
         if args:
@@ -177,17 +179,13 @@ class Assemble:
 
     def cfdZeroElementFLUXCoefficients(self,Region):
         # print('Inside cfdZeroElementFLUXCoefficients')
-        Region.fluxes.FluxC.fill(0)
-        Region.fluxes.FluxV.fill(0)
-        Region.fluxes.FluxT.fill(0)
-        Region.fluxes.FluxC_old.fill(0)
+        Region.fluxes.cfdZeroElementFLUXCoefficients(self.theEquationName)
+
 
     def cfdZeroFaceFLUXCoefficients(self,Region):
         # print('Inside cfdZeroFaceFLUXCoefficients')
-        Region.fluxes.FluxCf.fill(0)
-        Region.fluxes.FluxVf.fill(0)
-        Region.fluxes.FluxTf.fill(0)
-        Region.fluxes.FluxFf.fill(0)
+        Region.fluxes.cfdZeroFaceFLUXCoefficients(self.theEquationName)
+
 
     def cfdPreAssembleContinuityEquation(self,Region,*args):
         '''初始化连续性方程的组装，系数置零，并初始化压力修正方程'''
@@ -640,53 +638,19 @@ class Assemble:
 
     def assembleFirstOrderEulerTransientTerm(self,Region,*args):
         """Assembles first order transient euler term
-        这段Python代码定义了一个名为`assembleFirstOrderEulerTransientTerm`的方法，它用于组装一阶欧拉瞬态项，这在计算流体动力学（CFD）中是常见的操作。以下是对这个方法的详细解释：
-
-        1. **方法定义**：
-        - `def assembleFirstOrderEulerTransientTerm(self, Region):` 定义了一个方法，接收一个参数`Region`，它是一个包含模拟区域信息的对象。
-
-        2. **获取元素体积**：
-        - `self.volumes = Region.mesh.elementVolumes.reshape(-1,1)` 将区域网格的元素体积转换为NumPy数组，并重塑为二维列向量。
-
-        3. **获取场的子数组**：
-        - 方法调用`Region.fluid[self.theEquationName].cfdGetSubArrayForInterior(Region)`和`cfdGetPrevTimeStepSubArrayForInterior(Region)`用于获取当前和上一时间步的内部场子数组。
-
-        4. **初始化场变量**：
-        - `self.phi` 和 `self.phi_old` 分别存储当前和上一时间步的场内部子数组。
-        - `self.rho` 和 `self.rho_old` 分别存储当前和上一时间步的密度内部子数组。
-
-        5. **获取时间步长**：
-        - `self.deltaT = Region.dictionaries.controlDict['deltaT']` 获取控制字典中的`deltaT`，即时间步长。
-
-        6. **计算通量系数**：
-        - `local_FluxC` 计算当前时间步的通量系数，它是体积、密度和时间步长的函数。
-        - `local_FluxC_old` 计算上一时间步的通量系数，注意符号相反。
-        - `local_FluxV` 初始化为零，表示没有源项或体积力。
-        - `local_FluxT` 计算总通量，它是`local_FluxC`和`local_FluxC_old`与相应场变量的乘积。
-
-        7. **更新通量数组**：
-        - 将计算得到的通量系数更新到`Region.fluxes`对象中，包括`FluxC`、`FluxC_old`、`FluxV`和`FluxT`。
-
-        ### 注意事项：
-        - 这段代码假设`Region`对象具有网格信息、流体属性、控制字典和通量对象。
-        - `self.theEquationName`应该是当前正在处理的方程的名称。
-        - 使用`np.asarray()`和`reshape(-1,1)`确保元素体积数组是二维的，这有助于后续的数组运算。
-        - `np.squeeze()`用于去除数组中的单维度条目，确保进行正确的逐元素乘法。
-        - 代码中的注释提供了对关键步骤的说明，有助于理解每个计算步骤的目的。
-
-        这个方法是CFD模拟中数值求解过程的一部分，用于组装瞬态项，这对于求解流体动力学方程是必要的。通过这种方式，可以方便地访问和更新通量信息，以实现模拟的数值求解。
+        这段Python代码定义了一个名为`assembleFirstOrderEulerTransientTerm`的方法，这个方法是CFD模拟中数值求解过程的一部分，用于组装瞬态项，这对于求解流体动力学方程是必要的。通过这种方式，可以方便地访问和更新通量信息，以实现模拟的数值求解。
         """   
         volumes = Region.mesh.elementVolumes[:,np.newaxis]
         deltaT = Q_(Region.dictionaries.controlDict['deltaT'],dm.time_dim)
-        local_FluxC =volumes*Region.fluid['rho'].phi[:Region.mesh.numberOfElements]/deltaT 
-        local_FluxC_old = -np.squeeze(volumes*Region.fluid['rho'].phi_old[:Region.mesh.numberOfElements])/deltaT
-        Region.fluxes.FluxC = local_FluxC
-        Region.fluxes.FluxC_old = local_FluxC_old
+        local_FluxC =(volumes*Region.fluid['rho'].phi[:Region.mesh.numberOfElements]/deltaT)
+        local_FluxC_old = -volumes*Region.fluid['rho'].phi_old[:Region.mesh.numberOfElements]/deltaT
+        Region.fluxes.FluxC[self.theEquationName] += np.squeeze(local_FluxC)#.applyFun(np.squeeze)
+        Region.fluxes.FluxC_old[self.theEquationName] += np.squeeze(local_FluxC_old)
 
-        # local_FluxV = np.zeros(len(local_FluxC))
-        Region.fluxes.FluxV = np.zeros(len(local_FluxC),dtype=float)
-        Region.fluxes.FluxT= (Region.fluxes.FluxC*Region.fluid[self.theEquationName].phi[:Region.mesh.numberOfElements,self.iComponent]
-                              +Region.fluxes.FluxC_old*Region.fluid[self.theEquationName].phi_old[:Region.mesh.numberOfElements,self.iComponent])
+        # Region.fluxes.FluxV = np.zeros(len(local_FluxC),dtype=float)
+        Region.fluxes.FluxT[self.theEquationName]+=\
+        (Region.fluxes.FluxC[self.theEquationName]*Region.fluid[self.theEquationName].phi[:Region.mesh.numberOfElements,self.iComponent]
+                              +Region.fluxes.FluxC_old[self.theEquationName]*Region.fluid[self.theEquationName].phi_old[:Region.mesh.numberOfElements,self.iComponent])
 
     def cfdPostAssembleScalarEquation(self, theEquationName):
         """Empty function, not sure why it exists
@@ -706,8 +670,8 @@ class Assemble:
             #   Second order upwind scheme
             self.processDCSOUScheme(Region)
         else:
-            print([theScheme, ' divScheme incorrect\n'])
-            os.exit()
+            io.cfdError(theScheme+' divScheme incorrect')
+
 
     def processDCSOUScheme(self,Region):
         #   Get mesh info
@@ -761,8 +725,7 @@ class Assemble:
                     self.cfdAssembleConvectionTermZeroGradient(Region,iBPatch)
                     # continue
                 else:
-                    print([theBCType,'<<<< Not implemented'])
-                    os.exit()
+                    io.cfdError([theBCType,'<<<< Not implemented'])
                 
             elif thePhysicalType=='outlet':
                 if theBCType=='fixedValue':
