@@ -32,12 +32,27 @@ q4=q1+q2
 q5=q1*q2
 q6=q1/q2
 
+
+print(q2)
+q2+=q1
+print(q1)
+print(q2)
+q2[3:]+=q1[3:]
+print(q2)
+q2[3:].value+=q1[3:].value
+print(q2)
+
+
+
+print('--------------------------------------------------\n')
 q7=q3
 q8=Q_(q3.value,q3.dimension)
 print(q3)
 q7.value[2]=33.3
+print(q7)
 print(q3)
 print(q8)
+print('--------------------------------------------------\n')
 q8.value=q3.value
 q3.value[2]=111
 print(q7)

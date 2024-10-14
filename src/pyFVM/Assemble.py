@@ -123,7 +123,7 @@ class Assemble:
         """
         #《The FVM in CFD》P. 545
         Region.coefficients.ac      += Region.fluxes.FluxC[self.theEquationName].value
-        Region.coefficients.ac_old  += Region.fluxes.FluxC_old[self.theEquationName].value
+        # Region.coefficients.ac_old  += Region.fluxes.FluxC_old[self.theEquationName].value
         Region.coefficients.bc      -= Region.fluxes.FluxT[self.theEquationName].value
 
     def cfdAssembleIntoGlobalMatrixFaceFluxes(self,Region,*args):

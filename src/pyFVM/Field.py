@@ -214,6 +214,12 @@ class Field(DimensionChecked):
     #==========================================================================
     #    Correct Fluid Field 更新场值
     #--------------------------------------------------------------------------
+        if np.any(np.isnan(Region.coefficients.dphi)) or np.any(np.isinf(Region.coefficients.dphi)):
+            raise ValueError("Quantity value contains invalid numbers (NaN or Inf).")
+        # 例如，检查值是否在合理范围内
+        min_val, max_val = -1e10, 1e10
+        if np.any(Region.coefficients.dphi < min_val) or np.any(Region.coefficients.dphi> max_val):
+            raise ValueError("Quantity value is out of the acceptable range.")
         self.cfdCorrectForInterior(Region,iComponent)
         self.cfdCorrectForBoundaryPatches(Region,iComponent)
 
@@ -224,7 +230,7 @@ class Field(DimensionChecked):
             urfP=Region.dictionaries.fvSolution['relaxationFactors']['fields']['p']
             self.phi[0:theNumberOfElements,iComponent].value += urfP*Region.coefficients.dphi
         else:
-            self.phi[0:theNumberOfElements,iComponent].value += Region.coefficients.dphi
+            self.phi[:theNumberOfElements,iComponent].value += Region.coefficients.dphi
 
     def setupPressureCorrection(self,Region):
         # Check if needs reference pressure

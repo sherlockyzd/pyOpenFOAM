@@ -15,7 +15,7 @@ class Quantity:
     __array_priority__ = 20  # 设置优先级高于 numpy.ndarray
     __slots__ = ['__value', '__dimension']
 
-    def __init__(self, value, dimension=Dimension()):
+    def __init__(self, value, dimension=Dimension(),copy=True):
         """
         初始化 Quantity 对象。
 
@@ -25,7 +25,10 @@ class Quantity:
             在 __init__ 和 value 的 setter 中，对于标量值（int 和 float），建议统一存储为 float 类型。这有助于避免在后续的算术运算中出现类型不一致的问题。
         """
         if isinstance(value, np.ndarray):
-            self.__value = value.astype(float).copy()  # 确保数值为 float
+            if copy:
+                self.__value = value.astype(float).copy()
+            else:
+                self.__value = value
         elif isinstance(value, (float, int)):
             self.__value = np.array([float(value)], dtype=float)  # 统一为 float
         elif isinstance(value, (list, tuple)):
@@ -166,9 +169,9 @@ class Quantity:
         """
         if isinstance(other, Quantity):
             self._check_dimension(other)
-            self.value += other.value
+            self.__value += other.value  # 直接修改内部数组
         elif isinstance(other, (int, float)) and self.dimension == dimless:
-            self.value += other
+            self.__value += other  # 直接修改内部数组
         else:
             raise TypeError("原地加法仅支持 Quantity 实例之间或无量纲 Quantity 与标量之间的相加。")
         return self    
@@ -242,7 +245,7 @@ class Quantity:
     
     def __str__(self) -> str:
         return self.__repr__()
-    
+        
     def __getitem__(self, key)-> 'Quantity':
         """
         重载切片操作符，以支持返回带量纲的 Quantity 对象。
@@ -257,7 +260,8 @@ class Quantity:
         # sliced_value = self.__value[key]
         # print(f"切片键: {key}, 切片后的值: {sliced_value}")
         # 不在 __init__ 中重新创建数组，直接传入现有的 ndarray
-        return Quantity(self.value[key], self.dimension)
+        sliced_value = self.value[key]  # 这是一个视图
+        return Quantity(sliced_value, self.dimension, copy=False)
     
     def __setitem__(self, key, value):
         """

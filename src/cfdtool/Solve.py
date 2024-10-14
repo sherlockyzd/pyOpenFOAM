@@ -233,88 +233,16 @@ def cfdSolveSOR(ac,anb,bc,cconn,dphi):
 PCG Solver
 -----------------------------------------------------------
 '''
-# def assemble_sparse_matrix_coo(ac, anb, cconn):
-#     """
-#     Assemble the sparse matrix A from ac, anb, and cconn.
-#     Args:
-#         ac (ndarray): Diagonal elements of the matrix A.
-#         anb (list of lists): Off-diagonal neighbor elements of A.
-#         cconn (list of lists): Connectivity (indices of neighbors) for each row.
-
-#     Returns:
-#         A_sparse (scipy.sparse.csr_matrix): The assembled sparse matrix in CSR format.
-#     """
-#     numberOfElements = len(ac)
-#     data = []
-#     row_indices = []
-#     col_indices = []
-
-#     # Add diagonal elements
-#     for i in range(numberOfElements):
-#         data.append(ac[i])
-#         row_indices.append(i)
-#         col_indices.append(i)
-
-#     # Add off-diagonal elements
-#     for i in range(numberOfElements):
-#         neighbors = cconn[i]
-#         anb_values = anb[i]
-#         for j_, j in enumerate(neighbors):
-#             data.append(anb_values[j_])
-#             row_indices.append(i)
-#             col_indices.append(j)
-
-#     data=np.array(data)
-#     row_indices=np.array(row_indices)
-#     col_indices=np.array(col_indices)
-#     from scipy.sparse import coo_matrix
-#     # Create the sparse matrix in COO format
-#     A_coo = coo_matrix((data, (row_indices, col_indices)), shape=(numberOfElements, numberOfElements))
-#     # Convert to CSR format for efficient arithmetic and solving
-#     A_sparse = A_coo.tocsr()
-#     return A_sparse
-
-# def assemble_sparse_matrix_csr(ac, anb, cconn):
-#     """
-#     使用 Numpy 数组将 ac, anb 和 cconn 组装成 CSR 格式的稀疏矩阵。
-
-#     参数：
-#         ac (ndarray): 矩阵 A 的对角元素。
-#         anb (list of lists): 矩阵 A 的非对角（邻接）元素。
-#         cconn (list of lists): 每一行的邻接（邻居的索引）。
-
-#     返回：
-#         data (ndarray): 矩阵的非零值。
-#         indices (ndarray): 非零值对应的列索引。
-#         indptr (ndarray): 每一行在 data 和 indices 中的起始位置索引。
-#     """
-#     numberOfElements = len(ac)
-#     data = []
-#     indices = []
-#     indptr = [0]
-#     for i in range(numberOfElements):
-#         # 添加对角元素
-#         data.append(ac[i])
-#         indices.append(i)
-#         # 添加非对角元素
-#         neighbors = cconn[i]
-#         anb_values = anb[i]
-#         for j_, j in enumerate(neighbors):
-#             data.append(anb_values[j_])
-#             indices.append(j)
-#         # indptr 记录每一行的起始位置
-#         indptr.append(len(data))
-#     # 将列表转换为 Numpy 数组
-#     data = np.array(data)
-#     indices = np.array(indices)
-#     indptr = np.array(indptr)
-#     from scipy.sparse import csr_matrix
-#     A_sparse = csr_matrix((data, indices, indptr), shape=(len(ac), len(ac)))
-#     return A_sparse
-
 # 更新PCG求解器以支持多种预处理器
 def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'):
     A_sparse=theCoefficients.assemble_sparse_matrix()
+    theCoefficients.verify_matrix_properties()
+    # if not (A_sparse != A_sparse.T).nnz == 0:
+    #     raise ValueError("矩阵 A 不是对称的")
+    # # 可以进一步验证正定性，例如通过检查对角元素是否为正
+    # if np.any(A_sparse.diagonal() <= 0):
+    #     raise ValueError("矩阵 A 不是正定的")
+
     r = theCoefficients.cfdComputeResidualsArray()
     initRes = mth.cfdResidual(r)
     if initRes < tolerance or maxIter == 0:
@@ -330,13 +258,16 @@ def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'
     # Setup preconditioner
     if preconditioner == 'ILU':
         # Compute incomplete LU factorization
-        ilu = spilu(A_sparse)
-        # Create a linear operator for the preconditioner
-        M_x = lambda x: ilu.solve(x)
-        M = LinearOperator(shape=A_sparse.shape, matvec=M_x)
+        try:
+            ilu = spilu(A_sparse)
+            M_x = lambda x: ilu.solve(x)
+            M = LinearOperator(shape=A_sparse.shape, matvec=M_x)
+        except Exception as e:
+            raise RuntimeError(f"ILU 分解失败: {e}")
+
     elif preconditioner == 'DIC':
         # Compute DIC preconditioner
-        diag_A = A_sparse.diagonal()
+        diag_A = A_sparse.diagonal().copy()
         # Ensure diagonal entries are positive
         diag_A[diag_A <= 0] = 1e-10  # Small positive number to prevent division by zero or negative sqrt
         M_diag = 1.0 / np.sqrt(diag_A)
@@ -382,55 +313,55 @@ def preconditioner_solve(r,theCoefficients,preconditioner):
     return z
 
 # 更新PCG求解器以支持多种预处理器
-def cfdSolvePCG1(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'):
-    ac = theCoefficients.ac
-    anb = theCoefficients.anb
-    cconn = theCoefficients.theCConn
-    dphi = np.copy(theCoefficients.dphi)  # Initial guess
-    # Compute initial residual
-    r = theCoefficients.cfdComputeResidualsArray()
-    initRes = mth.cfdResidual(r)
-    if initRes < tolerance or maxIter == 0:
-        return initRes, initRes
+# def cfdSolvePCG1(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'):
+#     ac = theCoefficients.ac
+#     anb = theCoefficients.anb
+#     cconn = theCoefficients.theCConn
+#     dphi = np.copy(theCoefficients.dphi)  # Initial guess
+#     # Compute initial residual
+#     r = theCoefficients.cfdComputeResidualsArray()
+#     initRes = mth.cfdResidual(r)
+#     if initRes < tolerance or maxIter == 0:
+#         return initRes, initRes
 
-    # Apply the preconditioner to the initial residual
-    z=preconditioner_solve(r,ac,anb,cconn,preconditioner)  # M_inv should be set in theCoefficients
-    d = np.copy(z)
-    rz_old = np.dot(r, z)
+#     # Apply the preconditioner to the initial residual
+#     z=preconditioner_solve(r,theCoefficients,preconditioner)  # M_inv should be set in theCoefficients
+#     d = np.copy(z)
+#     rz_old = np.dot(r, z)
 
-    for iter in range(maxIter):
-        # Compute Ad = A * d
-        Ad=theCoefficients.theCoefficients_Matrix_multiplication(d)
+#     for iter in range(maxIter):
+#         # Compute Ad = A * d
+#         Ad=theCoefficients.theCoefficients_Matrix_multiplication(d)
 
-        # Calculate step size alpha
-        alpha = rz_old / (np.dot(d, Ad)+1e-20)
+#         # Calculate step size alpha
+#         alpha = rz_old / (np.dot(d, Ad)+1e-20)
 
-        # Update solution
-        dphi += alpha * d
+#         # Update solution
+#         dphi += alpha * d
 
-        # Calculate new residual
-        r -= alpha * Ad
+#         # Calculate new residual
+#         r -= alpha * Ad
 
-        # Check for convergence
-        finalRes = mth.cfdResidual(r)
-        if finalRes < max(relTol * initRes, tolerance):
-            break
-        # Apply the preconditioner
-        z=preconditioner_solve(r,ac,anb,cconn,preconditioner)
+#         # Check for convergence
+#         finalRes = mth.cfdResidual(r)
+#         if finalRes < max(relTol * initRes, tolerance):
+#             break
+#         # Apply the preconditioner
+#         z=preconditioner_solve(r,theCoefficients,preconditioner)
 
-        # Calculate beta
-        rz_new = np.dot(r, z)
-        beta = rz_new / rz_old
+#         # Calculate beta
+#         rz_new = np.dot(r, z)
+#         beta = rz_new / rz_old
 
-        # Update search direction
-        d = z + beta * d
+#         # Update search direction
+#         d = z + beta * d
 
-        # Update rz_old for next iteration
-        rz_old = rz_new
+#         # Update rz_old for next iteration
+#         rz_old = rz_new
 
-    # 将最终解更新到 theCoefficients.dphi 中
-    theCoefficients.dphi = dphi
-    return initRes, finalRes
+#     # 将最终解更新到 theCoefficients.dphi 中
+#     theCoefficients.dphi = dphi
+#     return initRes, finalRes
 
 def cfdSolvePCG0(theCoefficients, maxIter, tolerance, relTol, preconditioner='ILU'):
     # ac = theCoefficients.ac

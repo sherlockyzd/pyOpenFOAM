@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class Coefficients():
     
     def __init__(self,Region):
@@ -69,22 +70,22 @@ class Coefficients():
         self.NumberOfElements=theNumberOfElements
         
         ## array of cell-centered contribution to the flux term. These are constants and constant diffusion coefficients and therefore act as 'coefficients' in the algebraic equations. See p. 229 Moukalled.
-        self.ac=np.zeros((theNumberOfElements),dtype=float)
+        self.ac=np.zeros((theNumberOfElements),dtype=np.float32)
         
         ## see ac, however this is for the previous timestep? Check this later when you know more. 
-        self.ac_old=np.zeros((theNumberOfElements),dtype=float)
+        self.ac_old=np.zeros((theNumberOfElements),dtype=np.float32)
         
         ## array of the boundary condition contributions to the flux term.
-        self.bc=np.zeros((theNumberOfElements),dtype=float)
+        self.bc=np.zeros((theNumberOfElements),dtype=np.float32)
 
         # 使用NumPy对象数组，允许每个元素的邻居数不一样
-        self.anb = np.empty(theNumberOfElements, dtype=object)
-
-        for iElement in range(theNumberOfElements):
-            # easiest way to make a list of zeros of defined length ...
-            self.anb[iElement] = np.zeros(int(self.theCSize[iElement]),dtype=float)
+        self.anb = [np.zeros(len(neighbors), dtype=np.float32) for neighbors in self.theCConn]
+        # self.anb = np.empty(theNumberOfElements, dtype=object)
+        # for iElement in range(theNumberOfElements):
+        #     # easiest way to make a list of zeros of defined length ...
+        #     self.anb[iElement] = np.zeros(int(self.theCSize[iElement]),dtype=float)
         
-        self.dphi=np.zeros((theNumberOfElements),dtype=float)
+        self.dphi=np.zeros((theNumberOfElements),dtype=np.float32)
         self._A_sparse_needs_update = True
         # self.dc=np.zeros((theNumberOfElements),dtype=float)
         # self.rc=np.zeros((theNumberOfElements),dtype=float)
@@ -223,30 +224,40 @@ class Coefficients():
                 indptr[i + 1] = indptr[i] + len(row_indices)
             self._indices = np.array(indices, dtype=np.int32)
             self._indptr = indptr
+            self._data = np.zeros(len(self._indices), dtype=np.float32)
             self._csr_structure = True
-
-        # 更新数据部分
-        # data = []
-        # for i in range(self.NumberOfElements):
-        #     data.append(self.ac[i])
-        #     data.extend(self.anb[i])
-        # data = np.array(data, dtype=np.float32)
         
         # Assemble data array
-        # Diagonal data
-        diag_data = self.ac.astype(np.float32)
-        # Off-diagonal data
-        off_diag_data = np.concatenate(self.anb).astype(np.float32)
-        # Combine data
-        data = np.concatenate([diag_data, off_diag_data])
+        # 组装数据部分（按行顺序）
+        for i in range(NumberOfElements):
+            start = self._indptr[i]
+            self._data[start] = self.ac[i]
+            self._data[start + 1:start + 1 + len(self.anb[i])] = self.anb[i]
+
+
         if not hasattr(self, '_A_sparse'):
             from scipy.sparse import csr_matrix
-            self._A_sparse = csr_matrix((data, self._indices, self._indptr), shape=(NumberOfElements, NumberOfElements))
+            self._A_sparse = csr_matrix((self._data, self._indices, self._indptr), shape=(NumberOfElements, NumberOfElements))
         else:
             # Update existing data array
-            self._A_sparse.data[:NumberOfElements] = diag_data
-            self._A_sparse.data[NumberOfElements:] = off_diag_data
+            self._A_sparse.data = (self._data).copy()
         self._A_sparse_needs_update = False
+
+
+
+    def assemble_sparse_matrix_lil(self):
+        NumberOfElements = self.NumberOfElements
+        from scipy.sparse import lil_matrix
+        
+        A = lil_matrix((NumberOfElements, NumberOfElements), dtype=np.float32)
+        for i in range(NumberOfElements):
+            A[i, i] = self.ac[i]
+            for j, neighbor in enumerate(self.theCConn[i]):
+                A[i, neighbor] = self.anb[i][j]
+        self._A_sparse = A.tocsr()
+        self._A_sparse_needs_update = False
+        return self._A_sparse
+
 
     def cfdComputeResidualsArray(self):
         Adphi=self.theCoefficients_Matrix_multiplication(self.dphi)
@@ -262,7 +273,6 @@ class Coefficients():
         #             Ad[iElement] = self.ac[iElement] * d[iElement]
         #             for iLocalNeighbour,neighbor in enumerate(self.theCConn[iElement]):
         #                 Ad[iElement] += self.anb[iElement][iLocalNeighbour] * d[neighbor]
-        
         return self.theCoefficients_sparse_multiplication(d)
 
     def theCoefficients_sparse_multiplication(self,d):
@@ -279,3 +289,12 @@ class Coefficients():
             else:
                 raise ValueError(f"Unknown method {method}")
         return self._A_sparse
+    
+    def verify_matrix_properties(self):
+    # 检查对称性
+        if (self._A_sparse != self._A_sparse.T).nnz != 0:
+            raise ValueError("矩阵 A 不是对称的")
+
+        # 检查正定性（简单检查对角元素是否为正）
+        if np.any(self._A_sparse.diagonal() <= 0):
+            raise ValueError("矩阵 A 不是正定的")
