@@ -401,7 +401,7 @@ def cfdGetKeyValue(key, valueType, fileID):
        fileID (str): path to initial file to look through. 
     Example usage:
         values = cfdGetKeyValue(key, valueType, fileID)
-    TODO:
+    DO:
         Add functionality for valueTypes 'scalar', 'cfdLabelList' and
         'cfdScalarList'. We can add these as we encounter a need for them. 
     这段Python代码定义了一个名为`cfdGetKeyValue`的函数，用于从OpenFOAM文件中提取特定关键字（`key`）的值。下面是对这段代码的详细解释：

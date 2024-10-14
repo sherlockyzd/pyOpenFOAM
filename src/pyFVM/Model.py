@@ -42,9 +42,9 @@ class Model():
                     Region.fluid['pprime'].boundaryPatchRef[iBPatch]['value']=[0.0]
             Region.fluid['p'].Grad=grad.Gradient(Region,'p')
             Region.fluid['pprime'].Grad=grad.Gradient(Region,'pprime')
-            self.equations['p'].CoffDim=dm.length_dim*dm.time_dim
+            self.equations['p'].CoffeDim=dm.length_dim*dm.time_dim
             self.DefineDUfield(Region,'DU')
-            self.DefineDUfield(Region,'DUT')
+            # self.DefineDUfield(Region,'DUT')
             self.DefineDUSffield(Region,'DUSf')
             self.DefineDUSffield(Region,'DUEf')
 
@@ -65,9 +65,9 @@ class Model():
                     terms_to_remove = ['laplacian', 'T']
                     str_gammas=io.remove_terms(parts,terms_to_remove)[0]
                     try:
-                        self.equations['T'].gamma=Region.fluid[str_gammas].phi
+                        self.equations['T'].gamma=Region.fluid[str_gammas].phi*Region.fluid['rho'].phi
                     except AttributeError:
-                        self.equations['T'].gamma=Region.fluid['k'].phi/Region.fluid['Cp'].phi
+                        self.equations['T'].gamma=Region.fluid['k'].phi/Region.fluid['Cp'].phi*Region.fluid['rho'].phi
                         print("self.equations['T'].gamma information doesn't exist in the FoamDictionaries object")
             
             for iterm in Region.dictionaries.fvSchemes['divSchemes']:
@@ -76,7 +76,7 @@ class Model():
                     self.rhophi_exists=True  
 
             Region.fluid['T'].Grad=grad.Gradient(Region,'T')
-            self.equations['T'].CoffDim=dm.flux_dim
+            self.equations['T'].CoffeDim=dm.flux_dim
 
     def DefineMomentumEquation(self,Region):
         initCasePath=Region.caseDirectoryPath + os.sep+'0'
@@ -114,7 +114,7 @@ class Model():
             #Define mdot_f field
             self.DefineMdot_f(Region)
             Region.fluid['U'].Grad=grad.Gradient(Region,'U')
-            self.equations['U'].CoffDim=dm.flux_dim
+            self.equations['U'].CoffeDim=dm.flux_dim
 
     def DefineScalarTransportEquation(self,Region):
         pass
@@ -141,4 +141,3 @@ class Model():
         Region.fluid['mdot_f'].boundaryPatchRef=Region.fluid['U'].boundaryPatchRef
         cfun.initializeMdotFromU(Region)
 
-                 

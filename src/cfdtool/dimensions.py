@@ -33,26 +33,20 @@ class Dimension:
     def __init__(self, *args, **kwargs):
         if len(args) == 1 and isinstance(args[0], (list, tuple, np.ndarray)) and len(args[0]) == 7:
             dim_list = args[0]
+        elif 'dim_list' in kwargs and isinstance(kwargs['dim_list'], (list, tuple, np.ndarray)) and len(kwargs['dim_list']) == 7:
+            dim_list = kwargs['dim_list']
         else:
-            M = kwargs.get('M', 0)
-            L = kwargs.get('L', 0)
-            T = kwargs.get('T', 0)
-            Theta = kwargs.get('Theta', 0)
-            I = kwargs.get('I', 0)
-            N = kwargs.get('N', 0)
-            J = kwargs.get('J', 0)
-            dim_list = kwargs.get('dim_list', [M, L, T, Theta, I, N, J])
+            dim_list = [kwargs.get(key, 0) for key in ['M', 'L', 'T', 'Theta', 'I', 'N', 'J']]
         
-        if not isinstance(dim_list, (list, tuple, np.ndarray)) or len(dim_list) != 7:
+        if len(dim_list) != 7:
             raise ValueError("dim_list must be a length-7 list, tuple, or NumPy array representing [M, L, T, Θ, I, N, J].")
         
         # 设置属性时确保只允许在初始化时赋值，后续不可修改
         value=np.array(dim_list, dtype=np.float64)
-        object.__setattr__(self, '_value', value)
-
         # 将数组设置为只读，确保不可变性
-        self._value.flags.writeable = False
-
+        value.flags.writeable = False
+        object.__setattr__(self, '_value', value)
+        # self._value.flags.writeable = False
     
     @property
     def value(self):
@@ -77,72 +71,76 @@ class Dimension:
     def __mul__(self, other)-> 'Dimension':
         if not isinstance(other, Dimension):
             raise TypeError("Multiplication is only supported between Dimension instances.")
-        new_dims = self.value + other.value
-        return Dimension(dim_list=new_dims)
+        # new_dims = self.value + other.value
+        return Dimension(self.value + other.value)
     
     def __truediv__(self, other)-> 'Dimension':
         if not isinstance(other, Dimension):
             raise TypeError("Division is only supported between Dimension instances.")
-        new_dims = self.value - other.value
-        return Dimension(dim_list=new_dims)
+        # new_dims = self.value - other.value
+        return Dimension(self.value - other.value)
     
     def __pow__(self, power)-> 'Dimension':
         if not isinstance(power, (int, float)):
             raise TypeError("Power must be an integer or float.")
-        new_dims = self.value * power
-        return Dimension(dim_list=new_dims)
+        # new_dims = self.value * power
+        return Dimension(self.value * power)
     
     def __eq__(self, other)-> bool:
-        if not isinstance(other, Dimension):
-            return False
-        return np.allclose(self.value, other.value, atol=1e-10)
+        # if not isinstance(other, Dimension):
+        #     return False
+        return isinstance(other, Dimension) and np.allclose(self.value, other.value, atol=1e-10)
     
     def __str__(self) -> str:
-        labels = ['M', 'L', 'T', 'Θ', 'I', 'N', 'J']
-        components = []
-        for label, power in zip(labels, self.value):
-            if np.isclose(power, 0.0):
-                continue
-            elif np.isclose(power, 1.0):
-                components.append(f"{label}")
-            elif np.isclose(power, -1.0):
-                components.append(f"{label}^-1")
-            else:
-                components.append(f"{label}^{power}")
-        return " ".join(components) if components else "Dimensionless"
+        return self.__repr__()
     
     def __repr__(self)-> str:
-        return f"Dimension({self.value.tolist()})"
+        labels = ['M', 'L', 'T', 'Θ', 'I', 'N', 'J']
+        # components = []
+        # for label, power in zip(labels, self.value):
+        #     if np.isclose(power, 0.0):
+        #         continue
+        #     elif np.isclose(power, 1.0):
+        #         components.append(f"{label}")
+        #     elif np.isclose(power, -1.0):
+        #         components.append(f"{label}^-1")
+        #     else:
+        #         components.append(f"{label}^{power}")
+        # return " ".join(components) if components else "Dimensionless"
+        # return f"Dimension({self.value.tolist()})"
         # return "Dimension(" + " ".join(self.__str__) + ")"
+        components = [f"{label}^{power}" if not np.isclose(power, 1.0) else label 
+                     for label, power in zip(labels, self.value) if not np.isclose(power, 0.0)]
+        return " ".join(components) if components else "Dimensionless"
     
     def copy(self)-> 'Dimension':
-        return Dimension(dim_list=self.value.copy())
+        return Dimension(self.value.copy())
     
     def grad(self)-> 'Dimension':
         # 复制 dimensions 对象，确保可修改
         value_copy = self.value.copy()
         value_copy[1] -= 1
-        return Dimension(dim_list=value_copy)
+        return Dimension(value_copy)
 
-# 定义常用量纲
+# Define common dimensions
 
-dimless = Dimension()
+dimless = Dimension()  # Dimensionless
 
-mass_dim = Dimension(M=1)                                          # 质量 [kg]
-length_dim = Dimension(dim_list=[0, 1, 0, 0, 0, 0, 0])             # 长度 [m]
-time_dim = Dimension(T=1)                                          # 时间 [s]
-temperature_dim = Dimension(dim_list=[0, 0, 0, 1, 0, 0, 0])        # 温度 [K]
-current_dim = Dimension(I=1)                                       # 电流 [A]
-amount_dim = Dimension(dim_list=[0, 0, 0, 0, 0, 1, 0])             # 物质的量 [mol]
-luminous_intensity_dim = Dimension(J=1)                            # 发光强度 [cd]
+mass_dim = Dimension(M=1)                                          # Mass [kg]
+length_dim = Dimension(dim_list=[0, 1, 0, 0, 0, 0, 0])             # Length [m]
+time_dim = Dimension(T=1)                                          # Time [s]
+temperature_dim = Dimension(dim_list=[0, 0, 0, 1, 0, 0, 0])        # Temperature [K]
+current_dim = Dimension(I=1)                                       # Electric Current [A]
+amount_dim = Dimension(dim_list=[0, 0, 0, 0, 0, 1, 0])             # Amount of Substance [mol]
+luminous_intensity_dim = Dimension(J=1)                            # Luminous Intensity [cd]
 
-# 复合量纲
+# Composite dimensions
 
-velocity_dim = length_dim / time_dim             # 速度 [m/s]
-acceleration_dim = length_dim / time_dim**2      # 加速度 [m/s²]
-force_dim = mass_dim * acceleration_dim          # 力 [kg·m/s²]
-pressure_dim = force_dim / length_dim**2         # 压力 [kg/(m·s²)]
-density_dim = mass_dim / length_dim**3           # 密度 [kg/m³]
-volume_dim = length_dim**3                        # 体积 [m³]
-area_dim = length_dim**2                          # 面积 [m²]
-flux_dim = mass_dim / time_dim                    # 通量 [kg/s]
+velocity_dim = length_dim / time_dim             # Velocity [m/s]
+acceleration_dim = length_dim / time_dim**2      # Acceleration [m/s²]
+force_dim = mass_dim * acceleration_dim          # Force [kg·m/s²]
+pressure_dim = force_dim / length_dim**2         # Pressure [kg/(m·s²)]
+density_dim = mass_dim / length_dim**3           # Density [kg/m³]
+volume_dim = length_dim**3                       # Volume [m³]
+area_dim = length_dim**2                         # Area [m²]
+flux_dim = mass_dim / time_dim                   # Flux [kg/s]

@@ -48,17 +48,17 @@ class Equation():
             # % Other equations ...
             # % Get info
             theNumberOfElements = Region.mesh.numberOfElements
-            volumes = Region.mesh.elementVolumes 
+            volumes = Region.mesh.elementVolumes.value
             # % Another approach which takes the transient term into consideration
             if not Region.STEADY_STATE_RUN:
-                rho = Region.fluid['rho'].phi
+                rho = Region.fluid['rho'].phi.value.copy()
                 if theEquationName== 'T':
                     try:
-                        Cp = Region.fluid['kappa'].phi
-                        rho = rho * Cp
+                        Cp = Region.fluid['kappa'].phi.value.copy()
+                        rho *=  Cp
                     except AttributeError:
                         pass
- 
+
                 deltaT = Region.dictionaries.controlDict['deltaT']
                 theMaxResidualSquared = 0.
                 theMaxScaledResidual = 0
@@ -67,7 +67,7 @@ class Equation():
                     local_ac = ac[iElement]
                     if not Region.STEADY_STATE_RUN:
                         at = volume*rho[iElement]/deltaT
-                        local_ac = local_ac - at
+                        local_ac -= at
                         if local_ac < 1e-6*at:
                             local_ac = at
 

@@ -1,6 +1,15 @@
 import numpy as np
+from cfdtool.quantities import Quantity as Q_
 
 def cfdMag(valueVector):
+    if isinstance(valueVector,Q_) :
+        return Q_(cfdMag_np(valueVector.value),valueVector.dimension)
+    elif isinstance(valueVector,np.ndarray):
+        return cfdMag_np(valueVector)
+    else:
+        raise TypeError("valueVector must be a Quantity or a numpy array")
+
+def cfdMag_np(valueVector):
 
     """Returns the magnitude of a vector or list of vectors
     
@@ -22,7 +31,8 @@ def cfdMag(valueVector):
     12. `return result`：函数返回`result`，它可能是一个包含多个模的列表，或者是一个单一的模数值。
     总结来说，这段代码的目的是计算一个向量列表中每个向量的模，或者如果只给定了一个向量，则计算该向量的模。如果输入是一个向量列表，它会返回一个包含每个向量模的列表；如果输入是一个单一向量，它会返回该向量的模。
     """
-    # valueVector = np.asarray(valueVector)
+    if not isinstance(valueVector, np.ndarray):
+        raise TypeError("输入参数必须是一个 NumPy 数组")
     if valueVector.ndim == 1:
         # 输入是单个向量，返回单一模数
         return np.linalg.norm(valueVector)
@@ -31,6 +41,43 @@ def cfdMag(valueVector):
         return np.linalg.norm(valueVector, axis=1)
     else:
         raise ValueError("valueVector 必须是一维或二维的 NumPy 数组。")
+
+def cfdDot(Sf, U_f):
+    if isinstance(Sf,Q_) and isinstance(U_f,Q_):
+            return Q_(cfdDot_np(Sf.value, U_f.value),Sf.dimension*U_f.dimension)
+    
+    elif isinstance(Sf,Q_) and isinstance(U_f,np.ndarray):
+        return Q_(cfdDot_np(Sf.value, U_f), Sf.dimension)
+    
+    elif isinstance(Sf,np.ndarray) and isinstance(U_f,np.ndarray):
+        return cfdDot_np(Sf, U_f)
+    
+    else:
+        raise ValueError("输入参数必须是 Quantity 或 NumPy 数组。")
+
+def cfdDot_np(Sf, U_f):
+    """
+    计算每个面的面积向量 Sf 与速度向量 U_f 的点积。
+    
+    参数：
+    - Sf: 面面积向量数组，形状为 (..., dim)。
+    - U_f: 面上的速度向量数组，形状为 (..., dim)。
+    
+    返回：
+    - flux: 每个面的通量值数组，形状为 (...,)。
+    
+    支持一维、二维和三维向量。
+    
+    示例：
+    >>> Sf = np.array([[1, 2, 3], [4, 5, 6]])
+    >>> U_f = np.array([[7, 8, 9], [10, 11, 12]])
+    >>> cfdDot(Sf, U_f)
+    array([ 50, 154])
+    """
+    # 检查输入数组的形状是否匹配
+    if Sf.shape != U_f.shape:
+        raise ValueError(f"Shape mismatch: Sf.shape={Sf.shape} and U_f.shape={U_f.shape} must be the same.")
+    return np.einsum('...i,...i->...', Sf, U_f)
 
 def cfdUnit(vector):
     """
@@ -109,30 +156,3 @@ def cfdResidual(rc, method='norm'):
     elif method =='sum':
         rc_res = np.sum(np.abs(rc))
     return rc_res
-
-
-def cfdDot(Sf, U_f):
-    """
-    计算每个面的面积向量 Sf 与速度向量 U_f 的点积。
-    
-    参数：
-    - Sf: 面面积向量数组，形状为 (..., dim)。
-    - U_f: 面上的速度向量数组，形状为 (..., dim)。
-    
-    返回：
-    - flux: 每个面的通量值数组，形状为 (...,)。
-    
-    支持一维、二维和三维向量。
-    
-    示例：
-    >>> Sf = np.array([[1, 2, 3], [4, 5, 6]])
-    >>> U_f = np.array([[7, 8, 9], [10, 11, 12]])
-    >>> cfdDot(Sf, U_f)
-    array([ 50, 154])
-    """
-    # 检查输入数组的形状是否匹配
-    if Sf.shape != U_f.shape:
-        raise ValueError(f"Shape mismatch: Sf.shape={Sf.shape} and U_f.shape={U_f.shape} must be the same.")
-    
-    # 使用 np.einsum 进行广义点积计算，等价于np.sum(Sf * U_f, axis=-1)
-    return np.einsum('...i,...i->...', Sf, U_f)

@@ -42,6 +42,8 @@ class Region():
         for iTerm in self.model.equations:
             self.assembledPhi[iTerm]=assemble.Assemble(self,iTerm)
             self.fluid[iTerm].cfdfieldUpdate(self)
+        for iTerm in self.fluid:
+            self.fluid[iTerm].setPreviousTimeStep()    
         
         while(self.time.cfdDoTransientLoop()):
             #manage time
@@ -89,7 +91,7 @@ class Region():
 
     def cfdCorrectNSSystemFields(self):
         theNumberOfElements=self.mesh.numberOfElements
-        self.fluid['pprime'].phi[0:theNumberOfElements] = self.coefficients.dphi[:,None]
+        self.fluid['pprime'].phi[:theNumberOfElements].value = self.coefficients.dphi[:,None]
         self.fluid['pprime'].cfdfieldUpdate(self)#更新pprime的梯度，来计算速度增量
         self.fluid['U'].cfdCorrectNSFields(self)
         self.cfdUpdateProperty()

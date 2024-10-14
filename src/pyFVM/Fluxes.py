@@ -59,14 +59,14 @@ class Fluxes():
         self.FluxC_old = {}  # 上一时间步的体积通量
         # 为每个方程初始化通量
         for equation_name in Region.model.equations:
-            CoffDim = Region.model.equations[equation_name].CoffDim
-            Dim=Region.fluid[equation_name].phi.dimension*CoffDim
+            CoffeDim = Region.model.equations[equation_name].CoffeDim
+            Dim=Region.fluid[equation_name].phi.dimension*CoffeDim
             #值保存在面心上
             #face fluxes
             # face flux linearization coefficients for cell C (cell of interest)
-            self.FluxCf[equation_name]=Q_(np.zeros((theNumberOfFaces),dtype=float),CoffDim)
+            self.FluxCf[equation_name]=Q_(np.zeros((theNumberOfFaces),dtype=float),CoffeDim)
             # face flux linearization coefficients for neighbouring cell
-            self.FluxFf[equation_name]=Q_(np.zeros((theNumberOfFaces),dtype=float),CoffDim)
+            self.FluxFf[equation_name]=Q_(np.zeros((theNumberOfFaces),dtype=float),CoffeDim)
             # non-linear face coefficients 
             self.FluxVf[equation_name]=Q_(np.zeros((theNumberOfFaces),dtype=float),Dim)
             # total face flux (equal to FluxCf*phiC+FluxFf*phiF+FluxVf)
@@ -74,9 +74,9 @@ class Fluxes():
 
             #值保存在体心上
             #Volume fluxes (treated as source terms)
-            self.FluxC[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),CoffDim)
+            self.FluxC[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),CoffeDim)
             # volume fluxes from previous time step
-            self.FluxC_old[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),CoffDim)
+            self.FluxC_old[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),CoffeDim)
             # volume flux equal to source value times cell volume (Q_{C}^{phi} * Vc)
             self.FluxV[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),Dim)
             self.FluxT[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),Dim)

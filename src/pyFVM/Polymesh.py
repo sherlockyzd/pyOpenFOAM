@@ -398,7 +398,7 @@ class Polymesh():
                     continue
         
                 if len(tline.split()) ==1:
-                   
+
                     #load and skip number of owners
                     if not start:
                         nbrOwner=tline
@@ -478,7 +478,7 @@ class Polymesh():
                     continue
     
                 if len(tline.split()) ==1:
-                   
+
                     #load and skip number of owners
                     if not start:
                         self.numberOfInteriorFaces=int(tline)
@@ -536,7 +536,7 @@ class Polymesh():
 
         这个方法是读取和解析OpenFOAM网格边界文件的关键步骤，为后续的网格处理和CFD模拟提供了边界补丁的详细信息。这有助于理解网格的边界条件和拓扑结构。
         """
-       
+
         with open(self.boundaryFile,"r") as fpid:
             print('Reading boundary file ...')
             
@@ -567,7 +567,7 @@ class Polymesh():
                         '''
                         self.numberOfBoundaryPatches = int(tline.split()[0])
                         continue
-                   
+
                     boundaryName=tline.split()[0]
                     
                     self.cfdBoundaryPatchesArray[boundaryName]=io.cfdReadCfdDictionary(fpid)
@@ -594,7 +594,7 @@ class Polymesh():
         self.cfdIsClosedCavity = False
         为了判断是否需要再压力边界给出初始参考压力值!pressure Ref
         """
-               
+
         self.cfdIsClosedCavity=True
         
         for patch, value in self.cfdBoundaryPatchesArray.items():
@@ -773,7 +773,7 @@ class Polymesh():
         - 该过程确保在组装全球矩阵时，可以通过 upperAnbCoeffIndex 和 lowerAnbCoeffIndex 快速定位每个内部面对应的 anb 系数在所有者和邻居单元的 anb 数组中的位置。
         - 这对于非结构化网格尤为重要，因为每个单元的邻居数量可能不同，anb 数组的长度也不同。
         """
-        self.upperAnbCoeffIndex = np.zeros(self.numberOfInteriorFaces, dtype=np.int32)
+        self.upperAnbCoeffIndex = np.zeros(self.numberOfInteriorFaces, dtype=np.int32)#《The FVM in CFD》 P201
         self.lowerAnbCoeffIndex = np.zeros(self.numberOfInteriorFaces, dtype=np.int32)
         for iFace in range(self.numberOfInteriorFaces):
             own = self.owners[iFace]

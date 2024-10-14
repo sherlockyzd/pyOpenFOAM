@@ -1,9 +1,12 @@
 import numpy as np
 import cfdtool.IO as io
 import cfdtool.Math as mth
+from cfdtool.quantities import Quantity as Q_
 
+def cfdInterpolateFromElementsToFaces(Region,theInterpolationScheme,field,*args):
+    return Q_(cfdInterpolateFromElementsToFaces_tool(Region,theInterpolationScheme,field.value,*args),field.dimension)
 
-def cfdinterpolateFromElementsToFaces(Region,theInterpolationScheme,field,*args):
+def cfdInterpolateFromElementsToFaces_tool(Region,theInterpolationScheme,field,*args):
     '''
     将单元格（元素）上的场数据插值到网格的面（faces）上。
     
@@ -16,6 +19,8 @@ def cfdinterpolateFromElementsToFaces(Region,theInterpolationScheme,field,*args)
     - phi_f: 插值后的面场数据，形状为 (numberOfFaces, numberOfComponents)。
     '''
     # theInterpolationScheme=scheme
+    if field.shape[0]!=Region.mesh.numberOfElements+Region.mesh.numberOfBElements:
+        raise  ValueError("The shape of gradPhi does not match the number of elements in the mesh.")
     try:
         theNumberOfComponents = field.shape[1]
     except:
@@ -26,18 +31,25 @@ def cfdinterpolateFromElementsToFaces(Region,theInterpolationScheme,field,*args)
     phi_f=np.zeros((numberOfFaces,theNumberOfComponents))
 
     # 插值内部面
-    phi_f[:numberOfInteriorFaces,:]=cfdInterpolateFromElementsToInteriorFaces(Region,theInterpolationScheme,field)
+    phi_f[:numberOfInteriorFaces,:]=cfdInterpolateFromElementsToInteriorFaces_tool(Region,theInterpolationScheme,field[:Region.mesh.numberOfElements])
     ''' **边界面插值**：
     - 对于边界面（从 `numberOfInteriorFaces` 到 `numberOfFaces`），将单元格中心的值直接赋给 `phi_f`，因为边界面没有邻居单元格。
     '''
-    boundaryFaceOwners = Region.mesh.owners[numberOfInteriorFaces:numberOfFaces]
+    boundaryFaceOwners = Region.mesh.owners[numberOfInteriorFaces:]
+    neighbourFaceOwners= Region.mesh.owners_b
     # 处理边界面
-    phi_f[numberOfInteriorFaces:numberOfFaces, :] = field[boundaryFaceOwners, :]
+    phi_f[numberOfInteriorFaces:numberOfFaces, :] = 0.5*(field[boundaryFaceOwners, :]+field[neighbourFaceOwners, :])# TODO check theInterpolation
     
     return phi_f
 
 
 def  cfdInterpolateFromElementsToInteriorFaces(Region,theInterpolationScheme,field, *args):
+    if args:
+        return Q_(cfdInterpolateFromElementsToInteriorFaces_tool(Region,theInterpolationScheme,field.value, args[0].value),field.dimension)
+    else:
+        return Q_(cfdInterpolateFromElementsToInteriorFaces_tool(Region,theInterpolationScheme,field.value),field.dimension)
+
+def  cfdInterpolateFromElementsToInteriorFaces_tool(Region,theInterpolationScheme,field, *args):
     '''
     根据指定的插值方案，将场数据从单元格插值到内部面上。
     
@@ -50,6 +62,8 @@ def  cfdInterpolateFromElementsToInteriorFaces(Region,theInterpolationScheme,fie
     返回：
     - phi_f: 插值后的内部面场数据，形状为 (numberOfInteriorFaces, numberOfComponents)。
     '''
+    if field.shape[0]!=Region.mesh.numberOfElements:
+        raise  ValueError("The shape of gradPhi does not match the number of elements in the mesh.")
     try:
         theNumberOfComponents = field.shape[1]
     except:
@@ -93,11 +107,15 @@ def  cfdInterpolateFromElementsToInteriorFaces(Region,theInterpolationScheme,fie
             io.cfdError("linearUpwind is implemented in interpolateFromElementsToFaces Error!!!")
     else:
         io.cfdError(theInterpolationScheme+" is not yet implemented in interpolateFromElementsToFaces")
-
     return phi_f
 
-
 def cfdInterpolateGradientsFromElementsToInteriorFaces(Region,gradPhi,scheme,*args):
+    if args:
+        return Q_(cfdInterpolateGradientsFromElementsToInteriorFaces_tool(Region,gradPhi.value,scheme,args[0].value),gradPhi.dimension)
+    else:
+        return Q_(cfdInterpolateGradientsFromElementsToInteriorFaces_tool(Region,gradPhi.value,scheme),gradPhi.dimension)
+    
+def cfdInterpolateGradientsFromElementsToInteriorFaces_tool(Region,gradPhi,scheme,*args):
     '''
     将单元中心计算的梯度插值到内部面上。
     
@@ -110,6 +128,8 @@ def cfdInterpolateGradientsFromElementsToInteriorFaces(Region,gradPhi,scheme,*ar
     返回：
     - grad_f: 插值后的内部面梯度数据，形状为 (numberOfInteriorFaces, 3, numberOfComponents)。
     '''
+    if gradPhi.shape[0]!=Region.mesh.numberOfElements:
+        raise  ValueError("The shape of gradPhi does not match the number of elements in the mesh.")
     numberOfInteriorFaces = Region.mesh.numberOfInteriorFaces
     # owners of elements of faces
     owners_f=Region.mesh.interiorFaceOwners
@@ -118,7 +138,7 @@ def cfdInterpolateGradientsFromElementsToInteriorFaces(Region,gradPhi,scheme,*ar
     # face weights
     g_f=Region.mesh.interiorFaceWeights
     # vector formed between owner (C) and neighbour (f) elements
-    CF = Region.mesh.interiorFaceCF
+    CF = Region.mesh.interiorFaceCF.value
     # vector of ones
     # face gradient matrix
     grad_f= np.zeros((numberOfInteriorFaces, 3),dtype='float')
@@ -159,7 +179,7 @@ def cfdInterpolateGradientsFromElementsToInteriorFaces(Region,gradPhi,scheme,*ar
             io.cfdError('No phi provided for Gauss linear corrected interpolation')
 
         local_avg_grad = mth.cfdDot(grad_f, e_CF)[:, None] * e_CF
-   
+
         # Corrected gradient
         grad_f += (local_grad- local_avg_grad)
     

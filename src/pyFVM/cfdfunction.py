@@ -2,8 +2,8 @@ import cfdtool.IO as io
 import numpy as np
 import cfdtool.Interpolate as interp
 import cfdtool.Math as mth
-from cfdtool.quantities import Quantity as Q_
-import cfdtool.dimensions as dm
+# from cfdtool.quantities import Quantity as Q_
+# import cfdtool.dimensions as dm
 
 
 def initializeMdotFromU(Region):
@@ -20,23 +20,19 @@ def initializeMdotFromU(Region):
     返回：
     - self.phi: 形状为 (numberOfFaces, numberOfComponents) 的质量流量数组。
     """
-    U_f=interp.cfdinterpolateFromElementsToFaces(Region,'linear',Region.fluid['U'].phi.value)
-    rho_f=interp.cfdinterpolateFromElementsToFaces(Region,'linear',Region.fluid['rho'].phi.value)
-    Sf=Region.mesh.faceSf.value
+    # U_f=interp.cfdInterpolateFromElementsToFaces(Region,'linear',Region.fluid['U'].phi)
+    # rho_f=interp.cfdInterpolateFromElementsToFaces(Region,'linear',Region.fluid['rho'].phi)
     #calculate mass flux through faces, 必须写成二维数组的形式，便于后续与U的数组比较运算!
-    # 确保插值结果的形状匹配
-    if U_f.ndim != 2 or rho_f.ndim != 2:
-        io.cfdError('插值后的 U_f 和 rho_f 必须是二维数组')
-    
-    if Sf.shape[0] != U_f.shape[0] or Sf.shape[0] != rho_f.shape[0]:
-        io.cfdError('Sf、U_f 和 rho_f 的面数量不匹配')
-    
     # 计算通量 Sf ⋅ U_f，得到每个面的流量，形状为 (nFaces, 1)
-    flux =mth.cfdDot(Sf, U_f)[:, np.newaxis]  # 使用 np.einsum 进行高效的点积计算
-    
     # 计算质量流量 phi = rho_f * flux，形状为 (nFaces, 1)
-    Region.fluid['mdot_f'].phi = Q_(rho_f * flux,dm.flux_dim ) # 形状: (nFaces, 1)
+    Region.fluid['mdot_f'].phi = cal_flux(Region.fluid['U'].phi, Region.fluid['rho'].phi, Region) # 形状: (nFaces, 1)
     
     # 检查 phi 是否包含非有限值（如 NaN 或无穷大）
     if not np.all(np.isfinite(Region.fluid['mdot_f'].phi.value)):
-        io.cfdError('计算得到的质量流量 phi 包含非有限值')            
+        io.cfdError('计算得到的质量流量 phi 包含非有限值') 
+
+def cal_flux(U_phi,rho_phi,Region):
+    U_f=interp.cfdInterpolateFromElementsToFaces(Region,'linear',U_phi)
+    rho_f=interp.cfdInterpolateFromElementsToFaces(Region,'linear',rho_phi)
+    Sf=Region.mesh.faceSf
+    return rho_f*mth.cfdDot(Sf, U_f)[:, np.newaxis]

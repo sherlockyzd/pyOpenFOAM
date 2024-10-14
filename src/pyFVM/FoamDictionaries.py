@@ -1241,4 +1241,3 @@ class FoamDictionaries():
     def cfdSetBoundaryPatch(self,fieldName,boundaryPatch,Region):
         for iBPatch, theBCInfo in Region.mesh.cfdBoundaryPatchesArray.items():
             Region.fluid[fieldName].boundaryPatchRef[iBPatch] = boundaryPatch                            
-                       

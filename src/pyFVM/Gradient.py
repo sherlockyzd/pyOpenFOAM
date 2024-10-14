@@ -2,9 +2,11 @@ import numpy as np
 import cfdtool.Math as mth
 import cfdtool.IO as io
 from cfdtool.quantities import Quantity as Q_
-import cfdtool.dimensions as dm
+# import cfdtool.dimensions as dm
 
-class Gradient():
+from cfdtool.base import DimensionChecked
+
+class Gradient(DimensionChecked):
     
     def __init__(self, Region, phiName):  
         """
@@ -72,12 +74,17 @@ class Gradient():
         self.iFaces=Region.mesh.numberOfInteriorFaces
         # 复制 dimensions 对象，确保可修改
         dim = Region.fluid[phiName].phi.dimension.grad()
+        self.expected_dimensions = {
+            'phi': dim,
+            'phi_TR': dim,
+            'phi_Trace':dim,
+        }
         # 创建 Quantity 对象
         self.phi=Q_(np.zeros((Region.mesh.numberOfElements+Region.mesh.numberOfBElements,3,self.theNumberOfComponents)),dim)
         if self.phiName=='U':
             self.phi_TR=self.phi.copy()
             if Region.cfdIsCompressible:
-                self.phi_Trace=np.zeros((Region.mesh.numberOfElements+Region.mesh.numberOfBElements))
+                self.phi_Trace=Q_(np.zeros((Region.mesh.numberOfElements+Region.mesh.numberOfBElements)),dim)
             
         # self.cfdComputeGradientGaussLinear0(Region)
         self.cfdUpdateGradient(Region)
@@ -131,7 +138,7 @@ class Gradient():
         - 方法假设`Region`对象包含网格信息和流体场数据，这些信息用于梯度计算和边界条件处理。
         `cfdComputeGradientGaussLinear0`方法在CFD模拟中是计算梯度的关键步骤，它为求解流体动力学方程提供了必要的空间导数信息。通过这种方法，可以获取场在网格质心处的梯度，这对于理解和模拟流体现象的局部变化非常重要。
         """
-        phi_f=Q_(np.zeros((self.iFaces,self.theNumberOfComponents)),Region.fluid[self.phiName].phi.dimension)
+        # phi_f=Q_(np.zeros((self.iFaces,self.theNumberOfComponents)),Region.fluid[self.phiName].phi.dimension)
         phi_b=Region.fluid[self.phiName].phi[Region.mesh.iBElements,:]
         owners=Region.mesh.interiorFaceOwners[:self.iFaces]
         neighbours=Region.mesh.interiorFaceNeighbours[:self.iFaces]
@@ -139,10 +146,10 @@ class Gradient():
         #face contribution, treats vectors as three scalars (u,v,w)
         for iComponent in range(self.theNumberOfComponents):
             #vectorized linear interpolation (same as Interpolate.interpolateFromElementsToFaces('linear'))
-            phi_f[:self.iFaces,iComponent]=Region.mesh.interiorFaceWeights*Region.fluid[self.phiName].phi[Region.mesh.interiorFaceNeighbours,iComponent] +\
+            phi_f=Region.mesh.interiorFaceWeights*Region.fluid[self.phiName].phi[Region.mesh.interiorFaceNeighbours,iComponent] +\
                 (1.0-Region.mesh.interiorFaceWeights)*Region.fluid[self.phiName].phi[Region.mesh.interiorFaceOwners,iComponent]
             # interior face contribution
-            phi_f_Sf=phi_f[:self.iFaces,iComponent,np.newaxis]*Region.mesh.interiorFaceSf[:self.iFaces,:]# phi_f*Sf   
+            phi_f_Sf=phi_f[:,np.newaxis]*Region.mesh.interiorFaceSf[:self.iFaces,:]# phi_f*Sf   
             #accumlator of phi_f*Sf for the owner centroid of the face  
             self.phi[owners,:,iComponent] +=phi_f_Sf/Region.mesh.elementVolumes[owners,np.newaxis]
             #accumlator of phi_f*Sf for the neighbour centroid of the face
@@ -166,7 +173,7 @@ class Gradient():
     def cfdTraceGradient(self,Region):
         for iElement in range(Region.mesh.numberOfElements+Region.mesh.numberOfBElements):
             #vectorized linear interpolation (same as Interpolate.interpolateFromElementsToFaces('linear'))
-            self.phi_Trace[iElement]=np.trace(self.phi.value[iElement,:,:])
+            self.phi_Trace.value[iElement]=np.trace(self.phi.value[iElement,:,:])
         # pass
 
     def cfdUpdateBoundaryGradient(self,Region):
@@ -194,17 +201,16 @@ class Gradient():
         numberOfBFaces = Region.mesh.cfdBoundaryPatchesArray[patch]['numberOfBFaces']
         startBFace = Region.mesh.cfdBoundaryPatchesArray[patch]['startFaceIndex']
         grad_b=np.zeros((numberOfBFaces, 3,self.theNumberOfComponents))
-        dCf = Region.mesh.faceCF[startBFace: startBFace + numberOfBFaces]
-        e = dCf.value / mth.cfdMag(dCf.value)[:, np.newaxis]
+        dCf = Region.mesh.faceCF[startBFace: startBFace + numberOfBFaces].value
+        e = dCf / mth.cfdMag(dCf)[:, np.newaxis]
         for iComponent in range(self.theNumberOfComponents):    
             #保留切向分量，再考虑边界面的相邻单元的梯度计算 书籍《The Finite Volume Method in Computational Fluid Dynamics》Page 289页
             grad_b[:numberOfBFaces,:,iComponent]=self.phi.value[owners_b,:,iComponent]\
                 + ((Region.fluid[self.phiName].phi.value[iBElements,iComponent] 
-                    - Region.fluid[self.phiName].phi.value[owners_b,iComponent])/mth.cfdMag(dCf.value)
+                    - Region.fluid[self.phiName].phi.value[owners_b,iComponent])/mth.cfdMag(dCf)
                     -mth.cfdDot(self.phi.value[owners_b,:,iComponent],e))[:,np.newaxis]*e        
         self.phi.value[iBElements,:,:]=grad_b
-                
-   
+
     def updateInletGradients(self,Region,patch):
         '''
         这段Python代码定义了一个名为`updateInletGradients`的方法，它用于更新边界条件为入口（inlet）的梯度。这个方法是`Gradient`类的一部分，用于计算和设置边界面上的梯度，以确保物理上合理的流动条件。以下是对这个方法的详细解释：
@@ -249,24 +255,4 @@ class Gradient():
 
     def updateSymmetryGradients(self,Region,patch):
         pass
-
-
-    def cfdGetGradientSubArrayForInterior(self,Region,*args):
-        if self.type == "surfaceScalarField":
-            self.phiInter=self.phi.value[0:Region.mesh.numberOfInteriorFaces,:,0]
-        elif self.type == "volScalarField":
-            self.phiInter=self.phi.value[0:Region.mesh.numberOfInteriorFaces,:,0]
-        elif self.type == "volVectorField":
-            if args:
-                iComponet=args[0]
-                self.phiInter=self.phi.value[0:Region.mesh.numberOfInteriorFaces,:,iComponet]
-            else:
-                self.phiInter=self.phi.value[0:Region.mesh.numberOfInteriorFaces,:,:]
-        if self.phiName=='U':
-            if args:
-                iComponet=args[0]
-                self.phiInter_TR=self.phi_TR.value[0:Region.mesh.numberOfInteriorFaces,:,iComponet]
-            else:
-                self.phiInter_TR=self.phi_TR.value[0:Region.mesh.numberOfInteriorFaces,:,:]
-        return self.phiInter
 

@@ -4,19 +4,26 @@ import cfdtool.Math as mth
 from dataclasses import dataclass, field
 from cfdtool.quantities import Quantity as Q_
 import cfdtool.dimensions as dm
+import cfdtool.Interpolate as interp
 
+from typing import Optional#, Union, List, Tuple
 from cfdtool.base import DimensionChecked
 
 @dataclass
 class Field(DimensionChecked):
+    '''
+    Field 类同样使用了 @dataclass 装饰器，并显式定义了 __init__ 方法。
+    定义显式 __init__ 方法会覆盖  DimensionChecked 的 __init__ 方法不会被自动调用。
+    在 Field 类的 __init__ 方法中，调用 super().__init__()，需要手动调用。
+    '''
     name: str
     type: str
     boundaryPatchRef: dict = field(default_factory=dict)
     iComponent: int = field(default=1)
     # 定义 Quantity 类型字段，
-    phi: Q_ = field(default=None)        # 移除 metadata
-    phi_old: Q_ = field(default=None)    # 移除 metadata
-    Grad: Q_ = field(default=None)    # 移除 metadata
+    phi: Optional[Q_] = field(default=None, repr=False)
+    phi_old: Optional[Q_] = field(default=None, repr=False)
+    Grad: Optional[Q_] = field(default=None, repr=False)
     max: float = 0.0
     min: float = 0.0
     scale: float = 0.0
@@ -41,6 +48,7 @@ class Field(DimensionChecked):
         surfaceVector3 and creates an empty container with an adequate number of rows
         and columns (i.e., scalar = 1 column, vector = 3 columns) to hold field data.
         """ 
+
         # self.Region=Region
         self.name = fieldName
         self.type = fieldType
@@ -84,39 +92,23 @@ class Field(DimensionChecked):
         self.expected_dimensions = {
             'phi': dimension,
             'phi_old': dimension,
-            # 'phiGrad': dimension
         }
-
 
         self.phi = Q_(
                 np.zeros((theInteriorArraySize + theBoundaryArraySize, self.iComponent)), 
                 dimension
             )
-        self.phi_old =self.phi.copy()
-
+        #用于测试报错
+        # self.phi = Q_(
+        #         np.zeros((theInteriorArraySize + theBoundaryArraySize, self.iComponent)), 
+        #         dimension*dm.flux_dim
+        #     )
+        # 调用基类的构造函数，此时 expected_dimensions 已经设置
+        super().__init__()
         # 其他属性初始化
         self.cfdUpdateScale(Region)
+        self.phi_old =self.phi.copy()
 
-    # def get_default_dimension(self, fieldType):
-    #     """
-    #     根据 fieldType 返回预定义的量纲。
-        
-    #     参数:
-    #         fieldType (str): 场类型，例如 'volScalarField', 'volVectorField' 等。
-        
-    #     返回:
-    #         Dimension: 对应的量纲对象。
-    #     """
-    #     if fieldType == 'volScalarField':
-    #         return dimless  # 无量纲
-    #     elif fieldType == 'volVectorField':
-    #         return velocity_dim  # 速度量纲 [m/s]
-    #     elif fieldType == 'surfaceScalarField':
-    #         return flux_dim  # 压力量纲 [kg/(m·s²)]
-    #     elif fieldType == 'surfaceVectorField':
-    #         return velocity_dim  # 速度量纲 [m/s]
-    #     else:
-    #         raise ValueError(f"Unsupported field type: {fieldType}")
 
     def setDimensions(self,dimensions):
         self.dimensions=dimensions
@@ -210,7 +202,8 @@ class Field(DimensionChecked):
     def cfdfieldUpdate(self,Region,*args):
         #只在计算一开始运行一次，在迭代运行之前
         self.updateFieldForAllBoundaryPatches(Region)
-        self.cfdfieldUpdateGradient_Scale(Region)
+        if self.name in Region.model.equations:
+            self.cfdfieldUpdateGradient_Scale(Region)
 
     def cfdfieldUpdateGradient_Scale(self,Region):
         #更新梯度，和比例尺
@@ -229,9 +222,9 @@ class Field(DimensionChecked):
         if self.name=='p':
             self.setupPressureCorrection(Region)
             urfP=Region.dictionaries.fvSolution['relaxationFactors']['fields']['p']
-            self.phi[0:theNumberOfElements,iComponent] += urfP*Region.coefficients.dphi
+            self.phi[0:theNumberOfElements,iComponent].value += urfP*Region.coefficients.dphi
         else:
-            self.phi[0:theNumberOfElements,iComponent] += Region.coefficients.dphi
+            self.phi[0:theNumberOfElements,iComponent].value += Region.coefficients.dphi
 
     def setupPressureCorrection(self,Region):
         # Check if needs reference pressure
@@ -490,20 +483,28 @@ class Field(DimensionChecked):
         if self.name=='U':
             theNumberOfElements = Region.coefficients.NumberOfElements
             # Get fields
-            DU  =Region.fluid['DU'].phi.value[:theNumberOfElements,:]
+            DU  =Region.fluid['DU'].phi[:theNumberOfElements,:]
             ppGrad = np.squeeze(Region.fluid['pprime'].Grad.phi)[0:theNumberOfElements,:]
             #  Calculate Dc*gradP
             DUPPGRAD = DU*ppGrad
             # Correct velocity
-            self.phi.value[0:theNumberOfElements,:] -= DUPPGRAD
+            self.phi[:theNumberOfElements,:] -= DUPPGRAD
             for iComponent in range(3):
                 self.cfdCorrectForBoundaryPatches(Region,iComponent)
             # self.cfdfieldUpdateGradient_Scale(Region)
+
             theNumberOfInteriorFaces=Region.mesh.numberOfInteriorFaces
-            owners_f=Region.mesh.owners[:theNumberOfInteriorFaces]
-            neighbours_f=Region.mesh.neighbours[:theNumberOfInteriorFaces]
-            Region.fluid['mdot_f'].phi[:theNumberOfInteriorFaces] +=0.75*(Region.fluxes.FluxCf[:theNumberOfInteriorFaces][:,None]*Region.fluid['pprime'].phi[owners_f]
-                                               +Region.fluxes.FluxFf[:theNumberOfInteriorFaces][:,None]*Region.fluid['pprime'].phi[neighbours_f])  # Update mdot_f
+            # owners_f=Region.mesh.owners[:theNumberOfInteriorFaces]
+            # neighbours_f=Region.mesh.neighbours[:theNumberOfInteriorFaces]
+            #calculate mass flux through faces, 必须写成二维数组的形式，便于后续与U的数组比较运算!
+            # 计算通量 Sf ⋅ U_f，得到每个面的流量，形状为 (nFaces, 1)
+            U_f=interp.cfdInterpolateFromElementsToInteriorFaces(Region,'linear',DUPPGRAD)
+            rho_f=interp.cfdInterpolateFromElementsToInteriorFaces(Region,'linear',Region.fluid['rho'].phi[:theNumberOfElements])
+            Sf=Region.mesh.faceSf[:theNumberOfInteriorFaces,:]
+            Region.fluid['mdot_f'].phi[:theNumberOfInteriorFaces] -= rho_f*mth.cfdDot(Sf, U_f)[:, np.newaxis]
+            # 0.75*(
+            #     Region.fluxes.FluxCf[self.name][:theNumberOfInteriorFaces][:,None]*Region.fluid['pprime'].phi[owners_f]
+            #     +Region.fluxes.FluxFf[self.name][:theNumberOfInteriorFaces][:,None]*Region.fluid['pprime'].phi[neighbours_f])  # Update mdot_f
             Region.fluid['mdot_f'].cfdCorrectForBoundaryPatches(Region,-1)
         else:
             pass
