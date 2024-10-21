@@ -70,22 +70,22 @@ class Coefficients():
         self.NumberOfElements=theNumberOfElements
         
         ## array of cell-centered contribution to the flux term. These are constants and constant diffusion coefficients and therefore act as 'coefficients' in the algebraic equations. See p. 229 Moukalled.
-        self.ac=np.zeros((theNumberOfElements),dtype=np.float32)
+        self.ac=np.zeros((theNumberOfElements),dtype=np.float64)
         
         ## see ac, however this is for the previous timestep? Check this later when you know more. 
-        self.ac_old=np.zeros((theNumberOfElements),dtype=np.float32)
+        self.ac_old=np.zeros((theNumberOfElements),dtype=np.float64)
         
         ## array of the boundary condition contributions to the flux term.
-        self.bc=np.zeros((theNumberOfElements),dtype=np.float32)
+        self.bc=np.zeros((theNumberOfElements),dtype=np.float64)
 
         # 使用NumPy对象数组，允许每个元素的邻居数不一样
-        self.anb = [np.zeros(len(neighbors), dtype=np.float32) for neighbors in self.theCConn]
+        self.anb = [np.zeros(len(neighbors), dtype=np.float64) for neighbors in self.theCConn]
         # self.anb = np.empty(theNumberOfElements, dtype=object)
         # for iElement in range(theNumberOfElements):
         #     # easiest way to make a list of zeros of defined length ...
         #     self.anb[iElement] = np.zeros(int(self.theCSize[iElement]),dtype=float)
         
-        self.dphi=np.zeros((theNumberOfElements),dtype=np.float32)
+        self.dphi=np.zeros((theNumberOfElements),dtype=np.float64)
         self._A_sparse_needs_update = True
         # self.dc=np.zeros((theNumberOfElements),dtype=float)
         # self.rc=np.zeros((theNumberOfElements),dtype=float)
@@ -165,12 +165,12 @@ class Coefficients():
         #     anb_values = self.anb[i]
         #     for j_, j in enumerate(neighbors):
         #         data.append(anb_values[j_])
-        # data=np.array(data, dtype=np.float32)
+        # data=np.array(data, dtype=np.float64)
         # Assemble data array
         # Diagonal data
-        diag_data = self.ac.astype(np.float32)
+        diag_data = self.ac.astype(np.float64)
         # Off-diagonal data
-        off_diag_data = np.concatenate(self.anb).astype(np.float32)
+        off_diag_data = np.concatenate(self.anb).astype(np.float64)
         # Combine data
         data = np.concatenate([diag_data, off_diag_data])
 
@@ -224,7 +224,7 @@ class Coefficients():
                 indptr[i + 1] = indptr[i] + len(row_indices)
             self._indices = np.array(indices, dtype=np.int32)
             self._indptr = indptr
-            self._data = np.zeros(len(self._indices), dtype=np.float32)
+            self._data = np.zeros(len(self._indices), dtype=np.float64)
             self._csr_structure = True
         
         # Assemble data array
@@ -240,7 +240,7 @@ class Coefficients():
             self._A_sparse = csr_matrix((self._data, self._indices, self._indptr), shape=(NumberOfElements, NumberOfElements))
         else:
             # Update existing data array
-            self._A_sparse.data = (self._data).copy()
+            self._A_sparse.data = self._data
         self._A_sparse_needs_update = False
 
 
@@ -249,7 +249,7 @@ class Coefficients():
         NumberOfElements = self.NumberOfElements
         from scipy.sparse import lil_matrix
         
-        A = lil_matrix((NumberOfElements, NumberOfElements), dtype=np.float32)
+        A = lil_matrix((NumberOfElements, NumberOfElements), dtype=np.float64)
         for i in range(NumberOfElements):
             A[i, i] = self.ac[i]
             for j, neighbor in enumerate(self.theCConn[i]):
@@ -290,11 +290,18 @@ class Coefficients():
                 raise ValueError(f"Unknown method {method}")
         return self._A_sparse
     
-    def verify_matrix_properties(self):
-    # 检查对称性
-        if (self._A_sparse != self._A_sparse.T).nnz != 0:
-            raise ValueError("矩阵 A 不是对称的")
+    
 
-        # 检查正定性（简单检查对角元素是否为正）
+    
+
+    def verify_matrix_properties(self):
+        from scipy.sparse.linalg import norm
+        # 检查对称性：计算 Frobenius 范数
+        symmetry_error = norm(self._A_sparse - self._A_sparse.T, ord='fro')
+        if symmetry_error > 1e-6:
+            raise ValueError(f"矩阵 A 不是对称的，对称性误差为 {symmetry_error}")
+
+        # 检查正定性
         if np.any(self._A_sparse.diagonal() <= 0):
             raise ValueError("矩阵 A 不是正定的")
+

@@ -135,32 +135,6 @@ def cfdFactorizeILU(ac, anb, cconn):
 
     return dc
 
-# def theCoefficients_Matrix_multiplication(ac,anb,cconn,d):
-#     theNumberOfElements = len(ac)
-#     Ad = np.zeros_like(d)
-#     for iElement in range(theNumberOfElements):
-#             Ad[iElement] = ac[iElement] * d[iElement]
-#             for iLocalNeighbour,neighbor in enumerate(cconn[iElement]):
-#                 Ad[iElement] += anb[iElement][iLocalNeighbour] * d[neighbor]
-#     return Ad
-
-# def cfdComputeResidualsArray(theCoefficients):
-#     ac = theCoefficients.ac
-#     anb = theCoefficients.anb
-#     # bc = theCoefficients.bc
-#     cconn = theCoefficients.theCConn
-#     dphi = theCoefficients.dphi
-#     Adphi=theCoefficients_Matrix_multiplication(ac,anb,cconn,dphi)
-#     residualsArray= theCoefficients.bc-Adphi
-#     # theNumberOfElements = theCoefficients.NumberOfElements
-#     # residualsArray = np.zeros(theNumberOfElements)
-#     # for iElement in range(theNumberOfElements):   
-#     #     residualsArray[iElement] = theCoefficients.bc[iElement] - theCoefficients.ac[iElement]*theCoefficients.dphi[iElement]
-#     #     for nNeighbour in range(len(theCoefficients.theCConn[iElement])):
-#     #         iNeighbour = theCoefficients.theCConn[iElement][nNeighbour]
-#     #         residualsArray[iElement] -= theCoefficients.anb[iElement][nNeighbour]*theCoefficients.dphi[iNeighbour]
-#     return residualsArray
-
 def cfdSolveILU(ac, anb, r, dc, cconn, dphi):
     """
     Solve Incomplete Lower Upper (ILU) system.
@@ -237,11 +211,6 @@ PCG Solver
 def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'):
     A_sparse=theCoefficients.assemble_sparse_matrix()
     theCoefficients.verify_matrix_properties()
-    # if not (A_sparse != A_sparse.T).nnz == 0:
-    #     raise ValueError("矩阵 A 不是对称的")
-    # # 可以进一步验证正定性，例如通过检查对角元素是否为正
-    # if np.any(A_sparse.diagonal() <= 0):
-    #     raise ValueError("矩阵 A 不是正定的")
 
     r = theCoefficients.cfdComputeResidualsArray()
     initRes = mth.cfdResidual(r)
@@ -263,10 +232,10 @@ def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'
             M_x = lambda x: ilu.solve(x)
             M = LinearOperator(shape=A_sparse.shape, matvec=M_x)
         except Exception as e:
-            raise RuntimeError(f"ILU 分解失败: {e}")
+            raise RuntimeError(f"ILU 分解失败: {e}. 检查矩阵是否满足对称正定条件")
 
     elif preconditioner == 'DIC':
-        # Compute DIC preconditioner
+        # # Compute DIC preconditioner
         diag_A = A_sparse.diagonal().copy()
         # Ensure diagonal entries are positive
         diag_A[diag_A <= 0] = 1e-10  # Small positive number to prevent division by zero or negative sqrt
@@ -275,6 +244,10 @@ def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'
         def M_x(x):
             return M_diag * x
         M = LinearOperator(shape=A_sparse.shape, matvec=M_x)
+        # from pyamg import smoothed_aggregation_solver
+        # # 使用pyamg的SMG作为预处理器示例
+        # ml = smoothed_aggregation_solver(A_sparse)
+        # M = ml.aspreconditioner()
     elif preconditioner == 'None':
         M = None  # No preconditioning
     else:
@@ -287,7 +260,7 @@ def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'
     elif info > 0:
         print(f"在 {info} 次迭代后达到设定的收敛容限")
     else:
-        print("求解未能收敛")
+        print(f"求解未能收敛，info = {info}. 请检查矩阵的正定性或调整预处理器")
     finalRes = mth.cfdResidual(bc - A_sparse @ dphi)
 
     # 将最终解更新到 theCoefficients.dphi 中
