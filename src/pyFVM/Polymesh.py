@@ -643,7 +643,7 @@ class Polymesh():
         这个方法是CFD网格处理的关键步骤，为模拟提供了网格单元格之间的拓扑信息，这对于求解流体动力学方程和网格通信是必要的。
 
         """
-        ## (list of lists) List where each index represents an element in the domain. Each index has an associated list which contains the elements for which is shares a face (i.e. the neighouring elements). Do not confuse a faces 'neighbour cell', which refers to a face's neighbour element, with the neighbouring elements of a cell. 
+        ## (list of lists) List where each index represents an element in the domain. Each index has an associated list which contains the elements for which is shares a face (i.e. the neighbouring elements). Do not confuse a faces 'neighbour cell', which refers to a face's neighbour element, with the neighbouring elements of a cell.
         # self.elementNeighbours = [[] for _ in range(0,self.numberOfElements)]
         self.elementNeighbours = np.empty(self.numberOfElements, dtype=object)
 

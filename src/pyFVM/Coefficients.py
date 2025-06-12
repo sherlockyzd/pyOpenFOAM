@@ -59,7 +59,7 @@ class Coefficients():
     #     """
     #     if len(kwargs)==0:
             
-        ## (list of lists) identical to polyMesh.elementNeighbours. Provides a list where each index represents an element in the domain. Each index has an associated list which contains the elements for which is shares a face (i.e. the neighouring elements).
+        ## (list of lists) identical to polyMesh.elementNeighbours. Provides a list where each index represents an element in the domain. Each index has an associated list which contains the elements for which is shares a face (i.e. the neighbouring elements).
         self.theCConn = Region.mesh.elementNeighbours
         
         ## array containing the number of neighbouring elements for each element in the domain
