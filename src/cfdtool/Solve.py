@@ -254,7 +254,19 @@ def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'
         raise ValueError(f"Unknown preconditioner: {preconditioner}")
     
     # Compute initial residual
-    dphi, info = cg(A_sparse, bc, x0=dphi, tol=tolerance, maxiter=maxIter, M=M)
+    # scipy>=1.12 renamed the convergence argument from ``tol`` to ``rtol`` and
+    # added ``atol`` for absolute tolerance.  Use the provided ``relTol`` as
+    # the relative tolerance and keep ``tolerance`` as the absolute tolerance to
+    # preserve the original behaviour.
+    dphi, info = cg(
+        A_sparse,
+        bc,
+        x0=dphi,
+        rtol=relTol,
+        atol=tolerance,
+        maxiter=maxIter,
+        M=M,
+    )
     if info == 0:
         print("求解成功收敛")
     elif info > 0:
