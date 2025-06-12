@@ -67,19 +67,19 @@ class Region():
     def MomentumIteration(self):
         numVector=self.fluid['U'].iComponent
         for iComponent in range(numVector):
-            io.MomentumPrintInteration(iComponent)
+        io.MomentumPrintIteration(iComponent)
             self.assembledPhi['U'].cfdAssembleEquation(self,iComponent)
             self.cfdSolveUpdateEquation('U',iComponent)
         self.fluid['U'].cfdfieldUpdateGradient_Scale(self)
 
     def ContinuityIteration(self): 
-        io.ContinuityPrintInteration()
+        io.ContinuityPrintIteration()
         self.assembledPhi['p'].cfdAssembleEquation(self)
         self.cfdSolveUpdateEquation('p')
         self.cfdCorrectNSSystemFields()
 
     def ScalarTransportIteration(self,iTerm):
-        io.ScalarTransportPrintInteration()
+        io.ScalarTransportPrintIteration()
         self.assembledPhi[iTerm].cfdAssembleEquation(self)
         self.cfdSolveUpdateEquation(iTerm)
 
