@@ -123,6 +123,8 @@ class Quantity:
                 return Quantity(new_value, self.dimension)
         else:
             raise TypeError("Operation is only supported between Quantity and scalar values.")
+        # Ensure all code paths return a Quantity or raise an error
+        raise TypeError("Unsupported operation or operand types for _apply_operation.")
 
     # 二元操作符重载
     def __add__(self, other): return self._apply_operation(other, np.add)
@@ -415,9 +417,9 @@ class Quantity:
             trigonometric_funcs = {np.sin, np.cos, np.tan, np.arcsin, np.arccos, np.arctan, np.arctan2, np.arcsinh, np.arccosh, np.arctanh}
             if func in trigonometric_funcs:
                 quantity = args[0]
-                if quantity.dimension.dimensions==dimless:
+                if quantity.dimension==dimless:
                     # Result is dimensionless
-                    return Quantity(result_value, Quantity.dimless)
+                    return Quantity(result_value, dimless)
                 else:
                     raise ValueError(f"Cannot apply {func.__name__} to Quantity with dimension {quantity.dimension}")
             elif func==np.sqrt:

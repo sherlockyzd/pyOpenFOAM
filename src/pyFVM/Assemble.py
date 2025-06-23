@@ -328,19 +328,20 @@ class Assemble:
                 except KeyError:
                     io.cfdError('pRefCell not found')
 
-    def cfdAssembleDiagDominance(self,Region,*args):
+    def cfdAssembleDiagDominance(self,Region,*args):#TODO check not needed
     # ==========================================================================
     # Enforce Diagonal Dominance as this may not be ensured
     # --------------------------------------------------------------------------
     # Get info and fields
-        for iElement in range(Region.mesh.numberOfElements):
-            theNumberOfNeighbours = len(Region.coefficients.theCConn[iElement])
-            SumAik = 0
-            #   adding all the off diagonal pressure terms
-            for k in range(theNumberOfNeighbours):
-                Region.coefficients.anb[iElement][k]=min(Region.coefficients.anb[iElement][k],1e-10)
-                SumAik -= Region.coefficients.anb[iElement][k]     
-            Region.coefficients.ac[iElement] = max(Region.coefficients.ac[iElement],SumAik)
+        # for iElement in range(Region.mesh.numberOfElements):
+        #     theNumberOfNeighbours = len(Region.coefficients.theCConn[iElement])
+        #     SumAik = 0
+        #     #   adding all the off diagonal pressure terms
+        #     for k in range(theNumberOfNeighbours):
+        #         Region.coefficients.anb[iElement][k]=min(Region.coefficients.anb[iElement][k],-1e-10)
+        #         SumAik -= Region.coefficients.anb[iElement][k]     
+        #     Region.coefficients.ac[iElement] = max(Region.coefficients.ac[iElement],SumAik)
+        pass
 
     def cfdAssembleMassDivergenceAdvectionTerm(self,Region):
         io.cfdError('cfdCompressible solver not yet written')
@@ -368,7 +369,7 @@ class Assemble:
                 elif theBCType=='zeroGradient':
                     self.cfdAssembleMassDivergenceTermWallZeroGradientBC(Region,iBPatch)
                 else:
-                    io.cfdErrorr(theBCType+'<<<< not implemented')
+                    io.cfdError(theBCType+'<<<< not implemented')
             elif thePhysicalType=='inlet':
                 if theBCType=='inlet' or theBCType=='zeroGradient':
                     #Specified Velocity
@@ -378,7 +379,7 @@ class Assemble:
                     self.cfdAssembleMassDivergenceTermInletFixedValueBC(Region,iBPatch)
                 else:
                     #Specified Total Pressure and Velocity Direction
-                    io.cfdErrorr(theBCType+'<<<< not implemented')
+                    io.cfdError(theBCType+'<<<< not implemented')
             
             elif thePhysicalType=='outlet':
                 if theBCType=='outlet' or theBCType=='zeroGradient':
@@ -388,7 +389,7 @@ class Assemble:
                     #Specified Pressure
                     self.cfdAssembleMassDivergenceTermOutletFixedValueBC(Region,iBPatch)
                 else:
-                    io.cfdErrorr(theBCType+'<<<< not implemented')
+                    io.cfdError(theBCType+'<<<< not implemented')
             elif thePhysicalType=='empty' or thePhysicalType=='symmetry' or thePhysicalType=='symmetryPlane':
                 self.cfdAssembleMassDivergenceTermWallSlipBC(Region,iBPatch)
             else:
@@ -608,7 +609,7 @@ class Assemble:
         #   Initialize local fluxes
         local_FluxCf = rho_f*geoDiff
         local_FluxFf = -local_FluxCf
-        local_FluxVf = rho_f*(mth.cfdDot(U_bar_f,Sf)-mth.cfdDot(p_RhieChowValue,Region.fluid['DUSf'].phi[0:theNumberOfInteriorFaces]))
+        local_FluxVf = rho_f*(mth.cfdDot(U_bar_f,Sf)-mth.cfdDot(p_RhieChowValue,Region.fluid['DUSf'].phi[0:theNumberOfInteriorFaces]))#TODO check FluxVf
 
         if Region.pp_nonlinear_corrected:
             Region.fluid['pprime'].phiGrad.cfdUpdateGradient(Region)
@@ -843,7 +844,7 @@ class Assemble:
         # 计算 FluxC, FluxV, FluxT
         Ui=Region.fluid[self.theEquationName].phi[:numberOfElements,self.iComponent]
         zeros=np.zeros_like(effDiv[:numberOfElements])
-        max_effDiv = np.maximum(effDiv[:numberOfElements], zeros)
+        max_effDiv = np.maximum(effDiv[:numberOfElements].value, zeros)
         local_FluxC = max_effDiv - effDiv[:numberOfElements]
         local_FluxV = -max_effDiv * Ui
         # local_FluxT = local_FluxC * Ui + local_FluxV
@@ -1056,7 +1057,7 @@ class Assemble:
             elif iComponent==2:
                 local_FluxCb =  mu_b*Region.mesh.geoDiff_f[iBFaces]*(1-nz2)
                 local_FluxVb = -mu_b*Region.mesh.geoDiff_f[iBFaces]*((u_C-u_b)*nx*nz+(v_C-v_b)*ny*nz+w_b*(1-nz2))
-            local_FluxFb =np.zeros_like(local_FluxCb)
+            # local_FluxFb =np.zeros_like(local_FluxCb)
         else:
             local_FluxCb=mu_b*Region.mesh.geoDiff_f[iBFaces]
             # local_FluxFb=-mu_b*Region.mesh.geoDiff_f[iBFaces] #TODO check boundary condition

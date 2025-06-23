@@ -28,7 +28,7 @@ class Dimension:
     密度：`[1 -3 0 0 0 0 0]` （kg/m³）
     通过这种方式，OpenFOAM 可以确保所有物理量的单位在计算中保持一致。如果在模拟过程中出现单位不匹配的问题，OpenFOAM 将给出错误信息。
     '''
-    __slots__ = ['_value']
+    __slots__ = ['_value'] # 使用 __slots__ 限制实例属性，避免动态添加属性，提高性能和内存效率
 
     def __init__(self, *args, **kwargs):
         if len(args) == 1 and isinstance(args[0], (list, tuple, np.ndarray)) and len(args[0]) == 7:

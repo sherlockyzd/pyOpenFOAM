@@ -12,6 +12,7 @@ from cfdtool.quantities import Quantity as Q_
 import cfdtool.dimensions as dm
 import cfdtool.Math as mth
 
+
 local_centre = np.zeros(3)  # 标量
 face_centroid = Q_([2, 3, 4], dm.Dimension([0, 1, 0, 0, 0, 0, 0]))  # 带量纲
 # 触发 __add__，这应该抛出错误
@@ -22,6 +23,7 @@ face_centroid = Q_([2, 3, 4], dm.Dimension([0, 1, 0, 0, 0, 0, 0]))  # 带量纲
 LL=dm.Dimension(L=1)
 MM=dm.Dimension(M=1)
 LL*MM
+q0=dm.dimless
 dm.mass_dim
 dm.Dimension(dim_list=[0, 1, 0, 0, 0, 0, 0])
 dm.length_dim*dm.pressure_dim

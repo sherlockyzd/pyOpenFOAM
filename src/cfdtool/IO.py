@@ -37,22 +37,22 @@ def cfdPrintHeader():
     print('||                                                                             ||')
     print('||*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*||\n')
 
-def MomentumPrintInteration(iComponent):
+def MomentumPrintIteration(iComponent):
     print('|==========================================================================|\n')
     print('                     Momentum Iteration Component part %d \n'%iComponent)
     print('|--------------------------------------------------------------------------|\n')
 
-def ContinuityPrintInteration():
+def ContinuityPrintIteration():
     print('|==========================================================================|\n')
     print('                     Continuity Iteration\n')
     print('|--------------------------------------------------------------------------|\n')
 
-def ScalarTransportPrintInteration():
+def ScalarTransportPrintIteration():
     print('|==========================================================================|\n')
     print('                     ScalarTransport Iteration \n' )
     print('|--------------------------------------------------------------------------|\n')
 
-def cfdPrintInteration(theEquationName,iterationNumber,*args):
+def cfdPrintIteration(theEquationName,iterationNumber,*args):
     # print('|==========================================================================|\n')
     if args:
         iComponent=args[0]
