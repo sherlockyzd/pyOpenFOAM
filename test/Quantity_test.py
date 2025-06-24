@@ -27,8 +27,13 @@ q0=dm.dimless
 dm.mass_dim
 dm.Dimension(dim_list=[0, 1, 0, 0, 0, 0, 0])
 dm.length_dim*dm.pressure_dim
-q1=Q_([1, 2, 3, 4, 5],dm.length_dim)
+q1=Q_([10, 2, 300, 44, 5],dm.length_dim)
 q2=Q_([30, 40, 50, 40, 44],dm.length_dim)
+qqmax=np.maximum(q1,q2)
+print(qqmax)
+
+
+
 q3=Q_([3, 4, 5, 4, 44],dm.pressure_dim)
 q4=q1+q2
 q5=q1*q2

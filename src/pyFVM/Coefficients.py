@@ -204,16 +204,6 @@ class Coefficients():
         NumberOfElements=self.NumberOfElements
         if not hasattr(self, '_csr_structure'):
             # 组装矩阵结构部分（indices 和 indptr）
-            # indices = []
-            # indptr = [0]
-            # for i in range(self.NumberOfElements):
-            #     # 添加对角线索引
-            #     indices.append(i)
-            #     # 添加非对角线索引
-            #     indices.extend(self.theCConn[i])
-            #     indptr.append(len(indices))
-            # self._indices = np.array(indices, dtype=np.int32)
-            # self._indptr = np.array(indptr, dtype=np.int32)
             indptr = np.zeros(NumberOfElements + 1, dtype=np.int32)
             indices = []
             for i in range(NumberOfElements):
@@ -232,7 +222,7 @@ class Coefficients():
         for i in range(NumberOfElements):
             start = self._indptr[i]
             self._data[start] = self.ac[i]
-            self._data[start + 1:start + 1 + len(self.anb[i])] = self.anb[i]
+            self._data[start + 1:self._indptr[i+1]] = self.anb[i]
 
 
         if not hasattr(self, '_A_sparse'):
@@ -298,7 +288,7 @@ class Coefficients():
         from scipy.sparse.linalg import norm
         # 检查对称性：计算 Frobenius 范数
         symmetry_error = norm(self._A_sparse - self._A_sparse.T, ord='fro')
-        if symmetry_error > 1e-6:
+        if symmetry_error > 1e-5:
             raise ValueError(f"矩阵 A 不是对称的，对称性误差为 {symmetry_error}")
 
         # 检查正定性

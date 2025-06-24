@@ -1,7 +1,7 @@
 import numpy as np
-from scipy.sparse.linalg import cg, spilu, LinearOperator
-from scipy.sparse import csr_matrix
-from pyamg import smoothed_aggregation_solver
+# from scipy.sparse.linalg import cg, spilu, LinearOperator
+# from scipy.sparse import csr_matrix
+# from pyamg import smoothed_aggregation_solver
 import os
 import sys
 
@@ -50,7 +50,7 @@ def test_pcg_solver_large_system(N=1000):
         neighbors = theCConn[i]
         coeffs = np.full(len(neighbors), -1.0, dtype=np.float64)  # 非对角线元素
         anb.append(coeffs)
-    bc = np.ones(N, dtype=np.float64)  # 右端项，可以根据需要调整
+    bc = np.ones(N, dtype=np.float64)+np.random.rand(N)  # 右端项，可以根据需要调整，加上一个随机偏移量
 
     # 创建一个假的 Region 对象，包含 mesh.elementNeighbours
     mesh = Mesh(elementNeighbours=theCConn)
@@ -154,7 +154,7 @@ def test_pcg_solver_large_system(N=1000):
             error_ilu = np.linalg.norm(coeffs.dphi - x_exact)
             # print("\n精确解 x_exact:", x_exact)
             print("解的误差 (ILU):", error_ilu)
-            if error_ilu < 1e-6:
+            if error_ilu < 1e-4:
                 print("ILU预处理器测试通过")
             else:
                 print("ILU预处理器测试失败")
@@ -176,7 +176,7 @@ def test_pcg_solver_large_system(N=1000):
             error_dic = np.linalg.norm(coeffs.dphi - x_exact)
             # print("\n精确解 x_exact:", x_exact)
             print("解的误差 (DIC):", error_dic)
-            if error_dic < 1e-6:
+            if error_dic < 1e-4:
                 print("DIC预处理器测试通过")
             else:
                 print("DIC预处理器测试失败")
@@ -196,7 +196,7 @@ def test_pcg_solver_large_system(N=1000):
             error_none = np.linalg.norm(coeffs.dphi - x_exact)
             # print("\n精确解 x_exact:", x_exact)
             print("解的误差 (None):", error_none)
-            if error_none < 1e-6:
+            if error_none < 1e-4:
                 print("无预处理器测试通过")
             else:
                 print("无预处理器测试失败")

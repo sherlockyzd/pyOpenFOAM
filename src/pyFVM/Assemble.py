@@ -844,7 +844,7 @@ class Assemble:
         # 计算 FluxC, FluxV, FluxT
         Ui=Region.fluid[self.theEquationName].phi[:numberOfElements,self.iComponent]
         zeros=np.zeros_like(effDiv[:numberOfElements])
-        max_effDiv = np.maximum(effDiv[:numberOfElements].value, zeros)
+        max_effDiv = np.maximum(effDiv[:numberOfElements], zeros)
         local_FluxC = max_effDiv - effDiv[:numberOfElements]
         local_FluxV = -max_effDiv * Ui
         # local_FluxT = local_FluxC * Ui + local_FluxV

@@ -233,12 +233,48 @@ def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'
             M = LinearOperator(shape=A_sparse.shape, matvec=M_x)
         except Exception as e:
             raise RuntimeError(f"ILU 分解失败: {e}. 检查矩阵是否满足对称正定条件")
+    elif preconditioner == 'Jacobi':
+        # Compute Jacobi preconditioner
+        diag_A = A_sparse.diagonal().copy()
+        # Ensure diagonal entries are positive
+        if np.any(diag_A <= 0):
+            raise RuntimeError("DILU预处理器要求矩阵对角元素为正")      
+        M_diag = 1.0 / diag_A
+        # Create a linear operator for the preconditioner
+        def M_x(x):
+            return M_diag * x
+        M = LinearOperator(shape=A_sparse.shape, matvec=M_x)
+    elif preconditioner == 'DILU':
+        # Diagonal Incomplete LU preconditioner
+        # Extract diagonal and off-diagonal parts
+        diag_A = A_sparse.diagonal()
+        
+        # Check for zero or negative diagonal entries
+        if np.any(diag_A <= 0):
+            raise RuntimeError("DILU预处理器要求矩阵对角元素为正")
+        
+        # For DILU, we approximate L and U using only diagonal terms
+        # This is a simplified approach where we use diagonal scaling
+        # More sophisticated DILU would involve partial factorization
+        
+        # Simple DILU: Use diagonal-based approximation
+        # L_diag = sqrt(diag), U_diag = sqrt(diag)
+        inv_sqrt_diag = 1.0 / np.sqrt(diag_A)
+        
+        def dilu_solve(x):
+            # Forward solve with L (diagonal approximation)
+            y = x * inv_sqrt_diag
+            # Backward solve with U (diagonal approximation)  
+            return y * inv_sqrt_diag
+        
+        M = LinearOperator(shape=A_sparse.shape, matvec=dilu_solve)
 
     elif preconditioner == 'DIC':
         # # Compute DIC preconditioner
-        diag_A = A_sparse.diagonal().copy()
+        diag_A = A_sparse.diagonal()
         # Ensure diagonal entries are positive
-        diag_A[diag_A <= 0] = 1e-10  # Small positive number to prevent division by zero or negative sqrt
+        if np.any(diag_A <= 0):
+            raise RuntimeError("DILU预处理器要求矩阵对角元素为正")
         M_diag = 1.0 / np.sqrt(diag_A)
         # Create a linear operator for the preconditioner
         def M_x(x):
