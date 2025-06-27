@@ -925,7 +925,6 @@ class Assemble:
         """
         theEquationName=self.theEquationName
         numberOfInteriorFaces = Region.mesh.numberOfInteriorFaces
-        phi=Region.fluid[theEquationName].phi[:Region.mesh.numberOfElements,self.iComponent]
         gamma_f=np.squeeze(interp.cfdInterpolateFromElementsToFaces(Region,'harmonic mean',Region.model.equations[self.theEquationName].gamma))#调和平均值，《FVM》P226
         local_FluxCf  = gamma_f[:numberOfInteriorFaces]*Region.mesh.geoDiff_f[:numberOfInteriorFaces]
         # local_FluxFf  =-gamma_f[0:numberOfInteriorFaces]*Region.mesh.geoDiff_f[0:numberOfInteriorFaces]
@@ -944,6 +943,8 @@ class Assemble:
         Region.fluxes.FluxCf[self.theEquationName][:numberOfInteriorFaces] += local_FluxCf
         Region.fluxes.FluxFf[self.theEquationName][:numberOfInteriorFaces] += local_FluxFf
         Region.fluxes.FluxVf[self.theEquationName][:numberOfInteriorFaces] += local_FluxVf
+        
+        phi=Region.fluid[theEquationName].phi[:Region.mesh.numberOfElements,self.iComponent]
         Region.fluxes.FluxTf[self.theEquationName][:numberOfInteriorFaces] += local_FluxCf*np.squeeze(phi[Region.mesh.interiorFaceOwners])\
             +local_FluxFf*np.squeeze(phi[Region.mesh.interiorFaceNeighbours])+ local_FluxVf
 

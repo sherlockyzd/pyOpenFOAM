@@ -1,15 +1,15 @@
 import os
 import re
-import sys
+# import sys
 #import os.path
 
 def cfdError(*args):
     if args:
         str=args[0]
-        print(str)
+        raise RuntimeError(str)
     else:
-        print('--------------------Error!!--------------------------\n')
-    sys.exit()
+        raise RuntimeError('--------------------Error!!--------------------------\n')
+    # sys.exit()
 
 def cfdPrintMainHeader():
     print('*-*-*-*-*-*-*-*-*-*-*-*-*-*-* pyFVM *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*\n')
@@ -687,9 +687,9 @@ def cfdWriteOpenFoamParaViewData(Region):
     writelenth = Region.mesh.numberOfElements
     location = Region.time.currentTime
     for iTerm in Region.model.equations:
-        field = Region.fluid[iTerm].phi[:writelenth,:]
+        field = Region.fluid[iTerm].phi[:writelenth,:].value
         file_path = os.path.join(output_dir, iTerm)
-        dimensions = str([int(dim) for dim in Region.fluid[iTerm].dimensions])
+        dimensions = str([int(dim) for dim in Region.fluid[iTerm].phi.dimension.value])
         boundary_conditions = generate_boundary_conditions(iTerm, Region)
         write_field(location, file_path, iTerm, field, Region.fluid[iTerm].type, dimensions, boundary_conditions)
         if iTerm=='U':

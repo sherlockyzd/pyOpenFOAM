@@ -48,18 +48,25 @@ class Region():
         while(self.time.cfdDoTransientLoop()):
             #manage time
             self.time.cfdPrintCurrentTime()
-            self.time.cfdUpdateRunTime()
             for iTerm in self.model.equations:
                 self.fluid[iTerm].setPreviousTimeStep()
-                # self.fluid[iTerm].setPreviousIter()
-                #sub-loop
-                if iTerm=='U':
-                    self.MomentumIteration()
-                elif iTerm=='p':
-                    self.ContinuityIteration()
-                else:
-                    self.ScalarTransportIteration(iTerm)
-            plt.cfdPlotRes(self.caseDirectoryPath,self.model.equations)
+                self.fluid[iTerm].cfdfieldUpdateGradient(self)
+            for iter in range(self.time.maxIter):
+                self.time.iterationCount += 1
+                self.model.residuals['sumRes']=0.0
+                for iTerm in self.model.equations:
+                    #sub-loop
+                    if iTerm=='U':
+                        self.MomentumIteration()
+                    elif iTerm=='p':
+                        self.ContinuityIteration()
+                    else:
+                        self.ScalarTransportIteration(iTerm)
+                if self.model.residuals['sumRes'] < 1e-5:
+                    break
+            # plt.cfdPlotRes(self.caseDirectoryPath,self.model.equations)
+            plt.plotResidualHistory(self)
+            self.time.cfdUpdateRunTime()
             if self.time.cfdDoWriteTime():            
                 io.cfdWriteOpenFoamParaViewData(self)
                 pass
@@ -70,7 +77,6 @@ class Region():
             io.MomentumPrintIteration(iComponent)
             self.assembledPhi['U'].cfdAssembleEquation(self,iComponent)
             self.cfdSolveUpdateEquation('U',iComponent)
-        self.fluid['U'].cfdfieldUpdateGradient_Scale(self)
 
     def ContinuityIteration(self): 
         io.ContinuityPrintIteration()
@@ -86,8 +92,10 @@ class Region():
     def cfdSolveUpdateEquation(self,theEquationName,iComponent=-1):
         solve.cfdSolveEquation(self,theEquationName,iComponent)
         self.fluid[theEquationName].cfdCorrectField(self,iComponent)
-        if iComponent==-1:
-            self.fluid[theEquationName].cfdfieldUpdateGradient_Scale(self)
+        #记录每一个方程的时间残差和迭代次数
+        self.updateResiduals(theEquationName,iComponent)
+        if iComponent==-1 or iComponent==2:
+            self.fluid[theEquationName].cfdUpdateScale(self)
 
     def cfdCorrectNSSystemFields(self):
         theNumberOfElements=self.mesh.numberOfElements
@@ -147,6 +155,27 @@ class Region():
 
         """cfdGeometricLengthScale() and self.dictionaries.cfdReadTimeDirectory() require the mesh and therefore are not included in the __init__ function of FoamDictionaries and are instead called after the self.mesh=pm.Polymesh(self) line above."""
         self.dictionaries.cfdReadTimeDirectory(self)
+
+    def updateResiduals(self,theEquationName,iComponent=-1):
+        """
+        Updates the residuals for the specified equation and component.
+        This method updates the residuals dictionary in the model with the current residuals for the specified equation and component.
+        """
+        if theEquationName =='U':
+            self.model.residuals[theEquationName]['residuals'][iComponent].append(self.assembledPhi[theEquationName].theEquation.finalResidual[iComponent])
+            #记录单次迭代步的总误差
+            self.model.residuals['sumRes']+=self.assembledPhi[theEquationName].theEquation.finalResidual[iComponent]
+        else:
+            self.model.residuals[theEquationName]['residuals'].append(self.assembledPhi[theEquationName].theEquation.finalResidual)
+            self.model.residuals['sumRes']+=self.assembledPhi[theEquationName].theEquation.finalResidual
+        self.model.residuals[theEquationName]['time'].append(self.time.currentTime)
+        self.model.residuals[theEquationName]['iterations'].append(self.time.iterationCount)
+        
+
+    # def check_iteration_Convergence(self):
+        
+
+
 
     def cfdUpdateProperty(self):
         if self.cfdIsCompressible:

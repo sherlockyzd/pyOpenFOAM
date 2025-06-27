@@ -1,4 +1,5 @@
 import os
+# from numpy import array
 import cfdtool.IO as io
 import pyFVM.Field as field
 import pyFVM.Gradient as grad
@@ -24,6 +25,7 @@ class Model():
         self.DefineContinuityEquation(Region)
         self.DefineEnergyEquation(Region)
         self.DefineScalarTransportEquation(Region)
+        self.DefineResiduals(Region)
 
     def DefineContinuityEquation(self,Region):
         initCasePath=Region.caseDirectoryPath + os.sep+'0'
@@ -140,4 +142,18 @@ class Model():
         Region.fluid['mdot_f']=field.Field(Region,'mdot_f','surfaceScalarField',dm.flux_dim)
         Region.fluid['mdot_f'].boundaryPatchRef=Region.fluid['U'].boundaryPatchRef
         cfun.initializeMdotFromU(Region)
+
+    def DefineResiduals(self,*args):
+        """
+        Initializes the residuals for the equations in the model.
+        This method creates a dictionary to hold the residuals for each equation.
+        """
+        self.residuals = {}
+        self.residuals['sumRes']=float(0.0)
+        for equation_name in self.equations:
+            self.residuals[equation_name] = {}
+            # Initialize the residuals for each equation
+            self.residuals[equation_name].setdefault('time', [])
+            self.residuals[equation_name].setdefault('residuals', [])
+            self.residuals[equation_name].setdefault('iterations', [])
 

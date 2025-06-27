@@ -175,7 +175,7 @@ class Field(DimensionChecked):
         
         try:
             #see if it is a vector
-            iter(theMagnitude)
+            # iter(theMagnitude)
             phiMax=np.max(theMagnitude)
             phiMin=np.min(theMagnitude)
             # print(phiMax)
@@ -203,12 +203,13 @@ class Field(DimensionChecked):
         #只在计算一开始运行一次，在迭代运行之前
         self.updateFieldForAllBoundaryPatches(Region)
         if self.name in Region.model.equations:
-            self.cfdfieldUpdateGradient_Scale(Region)
+            # self.Grad.cfdUpdateGradient(Region)
+            self.cfdUpdateScale(Region)
 
-    def cfdfieldUpdateGradient_Scale(self,Region):
+    def cfdfieldUpdateGradient(self,Region):
         #更新梯度，和比例尺
         self.Grad.cfdUpdateGradient(Region)
-        self.cfdUpdateScale(Region)
+
 
     def cfdCorrectField(self,Region,iComponent):
     #==========================================================================
@@ -228,7 +229,7 @@ class Field(DimensionChecked):
         if self.name=='p':
             self.setupPressureCorrection(Region)
             urfP=Region.dictionaries.fvSolution['relaxationFactors']['fields']['p']
-            self.phi[0:theNumberOfElements,iComponent].value += urfP*Region.coefficients.dphi
+            self.phi[:theNumberOfElements,iComponent].value += urfP*Region.coefficients.dphi
         else:
             self.phi[:theNumberOfElements,iComponent].value += Region.coefficients.dphi
 
@@ -302,7 +303,6 @@ class Field(DimensionChecked):
         self.phi[iBElements,iComponent] -=  phi_normal*n[:,iComponent]
         # Store
         # Region.fluid['U'].phi[iBElements,iComponent] = U_C[iBElements,iComponent]
-
 
     def correctZeroGradient(self,Region,iBPatch,iComponent):
         # Get info

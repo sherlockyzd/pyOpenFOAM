@@ -87,13 +87,6 @@ class Quantity:
             Dimension: 量纲对象。
         """
         return self.__dimension
-
-    # def __array__(self, dtype=None):
-    #     """
-    #     重载 __array__ 方法，以便在使用 NumPy 函数时返回数值部分。
-    #     """
-    #     if not ENABLE_DIMENSION_CHECK:
-    #         return np.asarray(self.value, dtype=dtype)
     
     def _check_dimension(self, other):
         if ENABLE_DIMENSION_CHECK and self.dimension != other.dimension:

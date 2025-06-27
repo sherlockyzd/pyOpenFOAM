@@ -1,5 +1,5 @@
 import time as timer
-
+from numpy import int32 
 class Time():
     """Manages simulation's time related properties
     这段Python代码定义了一个名为 `Time` 的类，用于管理模拟的时间相关属性，特别是在执行瞬态（即随时间变化的）模拟时。以下是对类的构造器和方法的详细解释：
@@ -45,8 +45,10 @@ class Time():
         
         ##Time at beginning of transient loop
         self.tic=timer.time()
-        ##Instance of simulation's region class
-        # self.region=Region
+        # 记录迭代次数
+        self.iterationCount = int32(0)
+        self.maxIter = int32(2000)  # 最大迭代次数
+        #记录残差
         if Region.dictionaries.controlDict['startFrom']=='startTime':
             
                 ##Specified start time of the simulation
