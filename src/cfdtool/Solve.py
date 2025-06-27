@@ -202,6 +202,62 @@ def cfdSolveSOR(ac,anb,bc,cconn,dphi):
     
     return dphi
 
+def cfdSetupPreconditioner(A_sparse, preconditioner='ILU'):
+    from scipy.sparse.linalg import spilu,LinearOperator
+    # Setup preconditioner
+    if preconditioner == 'ILU':
+        # Compute incomplete LU factorization
+        try:
+            ilu = spilu(A_sparse)
+            return LinearOperator(shape=A_sparse.shape, matvec=lambda x: ilu.solve(x))
+        except Exception as e:
+            raise RuntimeError(f"ILU 分解失败: {e}. 检查矩阵是否满足对称正定条件")
+    elif preconditioner == 'Jacobi':
+        # Compute Jacobi preconditioner
+        # Ensure diagonal entries are positive
+        diag_A = A_sparse.diagonal()
+        if np.any(diag_A == 0):
+            raise RuntimeError("Jacobi 需要非零对角")
+        inv_diag = 1.0 / diag_A
+        # Create a linear operator for the preconditioner
+        return LinearOperator(shape=A_sparse.shape, matvec=lambda x: inv_diag*x)
+    elif preconditioner == 'DILU' or preconditioner == 'DIC':
+        # Diagonal Incomplete LU preconditioner
+        # Extract diagonal and off-diagonal parts
+        diag_A = A_sparse.diagonal()
+        # Check for zero or negative diagonal entries
+        if np.any(diag_A <= 0):
+            raise RuntimeError("DILU预处理器要求矩阵对角元素为正")
+        # For DILU, we approximate L and U using only diagonal terms
+        # This is a simplified approach where we use diagonal scaling
+        # More sophisticated DILU would involve partial factorization
+        
+        # Simple DILU: Use diagonal-based approximation
+        # L_diag = sqrt(diag), U_diag = sqrt(diag)
+        inv_sqrt = 1.0 / np.sqrt(diag_A)
+        
+        return LinearOperator(shape=A_sparse.shape, matvec=lambda x: inv_sqrt*(inv_sqrt*x))
+
+    # elif preconditioner == 'DIC':
+    #     # # Compute DIC preconditioner
+    #     diag_A = A_sparse.diagonal()
+    #     # Ensure diagonal entries are positive
+    #     if np.any(diag_A <= 0):
+    #         raise RuntimeError("DILU预处理器要求矩阵对角元素为正")
+    #     M_diag = 1.0 / np.sqrt(diag_A)
+    #     # Create a linear operator for the preconditioner
+    #     def M_x(x):
+    #         return M_diag * x
+    #     M = LinearOperator(shape=A_sparse.shape, matvec=M_x)
+        # from pyamg import smoothed_aggregation_solver
+        # # 使用pyamg的SMG作为预处理器示例
+        # ml = smoothed_aggregation_solver(A_sparse)
+        # M = ml.aspreconditioner()
+    elif preconditioner == 'None':
+        return None  # No preconditioning
+    else:
+        raise ValueError(f"Unknown preconditioner: {preconditioner}")
+    
 '''
 -----------------------------------------------------------
 PCG Solver
@@ -222,75 +278,11 @@ def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'
     # cconn = theCoefficients.theCConn
     dphi = np.copy(theCoefficients.dphi)  # Initial guess
     bc = theCoefficients.bc
-    
-    from scipy.sparse.linalg import cg,spilu,LinearOperator
-    # Setup preconditioner
-    if preconditioner == 'ILU':
-        # Compute incomplete LU factorization
-        try:
-            ilu = spilu(A_sparse)
-            M_x = lambda x: ilu.solve(x)
-            M = LinearOperator(shape=A_sparse.shape, matvec=M_x)
-        except Exception as e:
-            raise RuntimeError(f"ILU 分解失败: {e}. 检查矩阵是否满足对称正定条件")
-    elif preconditioner == 'Jacobi':
-        # Compute Jacobi preconditioner
-        diag_A = A_sparse.diagonal().copy()
-        # Ensure diagonal entries are positive
-        if np.any(diag_A <= 0):
-            raise RuntimeError("DILU预处理器要求矩阵对角元素为正")      
-        M_diag = 1.0 / diag_A
-        # Create a linear operator for the preconditioner
-        def M_x(x):
-            return M_diag * x
-        M = LinearOperator(shape=A_sparse.shape, matvec=M_x)
-    elif preconditioner == 'DILU':
-        # Diagonal Incomplete LU preconditioner
-        # Extract diagonal and off-diagonal parts
-        diag_A = A_sparse.diagonal()
-        
-        # Check for zero or negative diagonal entries
-        if np.any(diag_A <= 0):
-            raise RuntimeError("DILU预处理器要求矩阵对角元素为正")
-        
-        # For DILU, we approximate L and U using only diagonal terms
-        # This is a simplified approach where we use diagonal scaling
-        # More sophisticated DILU would involve partial factorization
-        
-        # Simple DILU: Use diagonal-based approximation
-        # L_diag = sqrt(diag), U_diag = sqrt(diag)
-        inv_sqrt_diag = 1.0 / np.sqrt(diag_A)
-        
-        def dilu_solve(x):
-            # Forward solve with L (diagonal approximation)
-            y = x * inv_sqrt_diag
-            # Backward solve with U (diagonal approximation)  
-            return y * inv_sqrt_diag
-        
-        M = LinearOperator(shape=A_sparse.shape, matvec=dilu_solve)
 
-    elif preconditioner == 'DIC':
-        # # Compute DIC preconditioner
-        diag_A = A_sparse.diagonal()
-        # Ensure diagonal entries are positive
-        if np.any(diag_A <= 0):
-            raise RuntimeError("DILU预处理器要求矩阵对角元素为正")
-        M_diag = 1.0 / np.sqrt(diag_A)
-        # Create a linear operator for the preconditioner
-        def M_x(x):
-            return M_diag * x
-        M = LinearOperator(shape=A_sparse.shape, matvec=M_x)
-        # from pyamg import smoothed_aggregation_solver
-        # # 使用pyamg的SMG作为预处理器示例
-        # ml = smoothed_aggregation_solver(A_sparse)
-        # M = ml.aspreconditioner()
-    elif preconditioner == 'None':
-        M = None  # No preconditioning
-    else:
-        raise ValueError(f"Unknown preconditioner: {preconditioner}")
-    
     # Compute initial residual
     # scipy>=1.11 changed ``cg`` keyword ``tol`` to ``rtol``
+    M = cfdSetupPreconditioner(A_sparse, preconditioner)
+    from scipy.sparse.linalg import cg
     try:
         dphi, info = cg(A_sparse, bc, x0=dphi, rtol=tolerance,
                         maxiter=maxIter, M=M)

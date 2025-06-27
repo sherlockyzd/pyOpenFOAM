@@ -84,6 +84,8 @@ class Polymesh():
         
         print('\n')
         print('Reading contents of ./constant/polyMesh folder ...')
+
+        self.OrthogonalCorrectionMethod=Region.dictionaries.fvSchemes['snGradSchemes']['default']
         
         self.cfdReadPointsFile()
         self.cfdReadFacesFile()
@@ -99,8 +101,6 @@ class Polymesh():
         self.cfdCheckIfCavity()
         
         print('Processing mesh ... please wait ....')
-
-        self.OrthogonalCorrectionMethod='OverRelaxed'
         
         self.cfdProcessElementTopology()
         self.cfdProcessNodeTopology()
@@ -1140,14 +1140,14 @@ class Polymesh():
         self.faceDist.value[:self.numberOfInteriorFaces]=np.linalg.norm(self.faceCF.value[:self.numberOfInteriorFaces],axis=1)
         nE= self.faceCF.value[:self.numberOfInteriorFaces]/self.faceDist.value[:self.numberOfInteriorFaces][:, np.newaxis]
         self.faceCFn[:self.numberOfInteriorFaces]=nE
-        if self.OrthogonalCorrectionMethod=='Minimum':
-            facemagEf=np.dot(self.faceSf.value[:self.numberOfInteriorFaces],nE)
+        if self.OrthogonalCorrectionMethod=='Minimum'or self.OrthogonalCorrectionMethod=='minimum'or self.OrthogonalCorrectionMethod=='corrected':
+            facemagEf=mth.cfdDot(self.faceSf.value[:self.numberOfInteriorFaces],nE)
             self.geoDiff_f.value[:self.numberOfInteriorFaces]=facemagEf/self.faceDist.value[:self.numberOfInteriorFaces]
             self.faceEf.value[:self.numberOfInteriorFaces]=facemagEf[:, np.newaxis]*nE
-        elif self.OrthogonalCorrectionMethod=='Orthogonal':
+        elif self.OrthogonalCorrectionMethod=='Orthogonal'or self.OrthogonalCorrectionMethod=='orthogonal':
             self.faceEf.value[:self.numberOfInteriorFaces]=self.faceAreas.value[:self.numberOfInteriorFaces, np.newaxis]*nE
             self.geoDiff_f.value[:self.numberOfInteriorFaces]=self.faceAreas.value[:self.numberOfInteriorFaces]/self.faceDist.value[:self.numberOfInteriorFaces]
-        elif self.OrthogonalCorrectionMethod=='OverRelaxed':
+        elif self.OrthogonalCorrectionMethod=='OverRelaxed'or self.OrthogonalCorrectionMethod=='overRelaxed':
             facemagEf=self.faceAreas.value[:self.numberOfInteriorFaces]*self.faceAreas.value[:self.numberOfInteriorFaces]/mth.cfdDot(self.faceSf.value[:self.numberOfInteriorFaces],nE)
             self.geoDiff_f.value[:self.numberOfInteriorFaces]=facemagEf/self.faceDist.value[:self.numberOfInteriorFaces]
             self.faceEf.value[:self.numberOfInteriorFaces]=facemagEf[:, np.newaxis]*nE
@@ -1156,7 +1156,7 @@ class Polymesh():
         self.faceTf[:self.numberOfInteriorFaces]=self.faceSf[:self.numberOfInteriorFaces]-self.faceEf[:self.numberOfInteriorFaces]
         self.faceCf[:self.numberOfInteriorFaces]=self.faceCentroids[:self.numberOfInteriorFaces]-self.elementCentroids[own]
         self.faceFf[:self.numberOfInteriorFaces]=self.faceCentroids[:self.numberOfInteriorFaces]-self.elementCentroids[nei]
-        self.faceWeights[:self.numberOfInteriorFaces]=(-mth.cfdDot(self.faceFf.value[:self.numberOfInteriorFaces],n))/(-mth.cfdDot(self.faceFf.value[:self.numberOfInteriorFaces],n)+mth.cfdDot(self.faceCf.value[:self.numberOfInteriorFaces],n))
+        self.faceWeights[:self.numberOfInteriorFaces]=-mth.cfdDot(self.faceFf.value[:self.numberOfInteriorFaces],n)/mth.cfdDot(self.faceCF.value[:self.numberOfInteriorFaces],n)
 
         #计算外部面与单元的相对几何属性
         n=self.facen[self.numberOfInteriorFaces:]

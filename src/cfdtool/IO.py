@@ -692,27 +692,27 @@ def cfdWriteOpenFoamParaViewData(Region):
         dimensions = str([int(dim) for dim in Region.fluid[iTerm].dimensions])
         boundary_conditions = generate_boundary_conditions(iTerm, Region)
         write_field(location, file_path, iTerm, field, Region.fluid[iTerm].type, dimensions, boundary_conditions)
-        # if iTerm=='U':
-        #     # 写入速度场数据
-        #     velocity_field = Region.fluid[iTerm].phi[:writelenth,:]
-        #     velocity_file_path = os.path.join(output_dir, iTerm)
-        #     velocity_dimensions = str([int(dim) for dim in Region.fluid[iTerm].dimensions])
-        #     velocity_boundary_conditions = generate_boundary_conditions(iTerm, Region)
-        #     write_field(location, velocity_file_path, iTerm, velocity_field, Region.fluid[iTerm].type, velocity_dimensions, velocity_boundary_conditions)
-        # elif iTerm=='p':
-        #     # 写入压强场数据
-        #     pressure_field = Region.fluid['p'].phi[:writelenth,:]
-        #     pressure_file_path = os.path.join(output_dir, 'p')
-        #     pressure_dimensions = "[0 2 -2 0 0 0 0]"
-        #     pressure_boundary_conditions = generate_boundary_conditions('p', Region)
-        #     write_field(location, pressure_file_path, 'p', pressure_field, 'volScalarField', pressure_dimensions, pressure_boundary_conditions)
-        # elif iTerm=='T':
-        #     # 写入温度场数据
-        #     temperature_field = Region.fluid['T'].phi[:writelenth,:]
-        #     temperature_file_path = os.path.join(output_dir, 'T')
-        #     temperature_dimensions = "[0 0 0 1 0 0 0]"
-        #     temperature_boundary_conditions = generate_boundary_conditions('T', Region)
-        #     write_field(location, temperature_file_path, 'T', temperature_field, 'volScalarField', temperature_dimensions, temperature_boundary_conditions)
+        if iTerm=='U':
+            # 写入速度场数据
+            velocity_field = Region.fluid[iTerm].phi[:writelenth,:].value
+            velocity_file_path = os.path.join(output_dir, iTerm)
+            velocity_dimensions = str([int(dim) for dim in Region.fluid[iTerm].dimensions])
+            velocity_boundary_conditions = generate_boundary_conditions(iTerm, Region)
+            write_field(location, velocity_file_path, iTerm, velocity_field, Region.fluid[iTerm].type, velocity_dimensions, velocity_boundary_conditions)
+        elif iTerm=='p':
+            # 写入压强场数据
+            pressure_field = Region.fluid['p'].phi[:writelenth,:].value
+            pressure_file_path = os.path.join(output_dir, 'p')
+            pressure_dimensions = "[0 2 -2 0 0 0 0]"
+            pressure_boundary_conditions = generate_boundary_conditions('p', Region)
+            write_field(location, pressure_file_path, 'p', pressure_field, 'volScalarField', pressure_dimensions, pressure_boundary_conditions)
+        elif iTerm=='T':
+            # 写入温度场数据
+            temperature_field = Region.fluid['T'].phi[:writelenth,:].value
+            temperature_file_path = os.path.join(output_dir, 'T')
+            temperature_dimensions = "[0 0 0 1 0 0 0]"
+            temperature_boundary_conditions = generate_boundary_conditions('T', Region)
+            write_field(location, temperature_file_path, 'T', temperature_field, 'volScalarField', temperature_dimensions, temperature_boundary_conditions)
 
     print(f'OpenFOAM files written to {output_dir}')
     

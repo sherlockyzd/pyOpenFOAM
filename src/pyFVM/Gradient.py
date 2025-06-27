@@ -96,6 +96,7 @@ class Gradient(DimensionChecked):
         # % Routine Description:
         # %   This function updates gradient of the field
         # %--------------------------------------------------------------------------
+        self.phi.value.fill(0.0)  # Reset the gradient field to zero
         gradSchemes = Region.dictionaries.fvSchemes['gradSchemes']['default']
         if gradSchemes=='Gauss linear':
             self.cfdComputeGradientGaussLinear0(Region)
@@ -139,25 +140,29 @@ class Gradient(DimensionChecked):
         `cfdComputeGradientGaussLinear0`方法在CFD模拟中是计算梯度的关键步骤，它为求解流体动力学方程提供了必要的空间导数信息。通过这种方法，可以获取场在网格质心处的梯度，这对于理解和模拟流体现象的局部变化非常重要。
         """
         # phi_f=Q_(np.zeros((self.iFaces,self.theNumberOfComponents)),Region.fluid[self.phiName].phi.dimension)
-        phi_b=Region.fluid[self.phiName].phi[Region.mesh.iBElements,:]
-        owners=Region.mesh.interiorFaceOwners[:self.iFaces]
-        neighbours=Region.mesh.interiorFaceNeighbours[:self.iFaces]
-        owners_b=Region.mesh.owners_b[:Region.mesh.numberOfBFaces]
+        owners=Region.mesh.interiorFaceOwners
+        neighbours=Region.mesh.interiorFaceNeighbours
+        owners_b=Region.mesh.owners_b
         #face contribution, treats vectors as three scalars (u,v,w)
         for iComponent in range(self.theNumberOfComponents):
             #vectorized linear interpolation (same as Interpolate.interpolateFromElementsToFaces('linear'))
-            phi_f=Region.mesh.interiorFaceWeights*Region.fluid[self.phiName].phi[Region.mesh.interiorFaceNeighbours,iComponent] +\
-                (1.0-Region.mesh.interiorFaceWeights)*Region.fluid[self.phiName].phi[Region.mesh.interiorFaceOwners,iComponent]
+            phi=Region.fluid[self.phiName].phi[:,iComponent]
             # interior face contribution
-            phi_f_Sf=phi_f[:,np.newaxis]*Region.mesh.interiorFaceSf[:self.iFaces,:]# phi_f*Sf   
+            phi_f=Region.mesh.interiorFaceWeights*phi[owners] +\
+                (1.0-Region.mesh.interiorFaceWeights)*phi[neighbours]
+            # interior face contribution
+            phi_f_Sf=phi_f[:,np.newaxis]*Region.mesh.interiorFaceSf# phi_f*Sf   
             #accumlator of phi_f*Sf for the owner centroid of the face  
-            self.phi[owners,:,iComponent] +=phi_f_Sf/Region.mesh.elementVolumes[owners,np.newaxis]
+            np.add.at(self.phi[:,:,iComponent],owners,phi_f_Sf/Region.mesh.elementVolumes[owners,np.newaxis])
             #accumlator of phi_f*Sf for the neighbour centroid of the face
-            self.phi[neighbours,:,iComponent] -=phi_f_Sf/Region.mesh.elementVolumes[neighbours,np.newaxis]
+            np.add.at(self.phi[:,:,iComponent],neighbours,-phi_f_Sf/Region.mesh.elementVolumes[neighbours,np.newaxis])
+            # self.phi[neighbours,:,iComponent] -=phi_f_Sf/Region.mesh.elementVolumes[neighbours,np.newaxis]
             # Boundary face contributions
-            self.phi[owners_b,:,iComponent] += phi_b[:Region.mesh.numberOfBFaces,iComponent,np.newaxis]*Region.mesh.Sf_b[:Region.mesh.numberOfBFaces,:]/Region.mesh.elementVolumes[owners_b,np.newaxis]# phi_b*Sf_b
+            phi_b=Region.fluid[self.phiName].phi[Region.mesh.iBElements,iComponent]
+            np.add.at(self.phi[:,:,iComponent],owners_b,phi_b[:,np.newaxis]*Region.mesh.Sf_b/Region.mesh.elementVolumes[owners_b,np.newaxis])# phi_b*Sf_b
+            # self.phi[owners_b,:,iComponent] += phi_b[:,np.newaxis]*Region.mesh.Sf_b/Region.mesh.elementVolumes[owners_b,np.newaxis]# phi_b*Sf_b
         
-        self.phi.value[Region.mesh.iBElements,:,:] = self.phi.value[Region.mesh.owners_b,:,:]
+        self.phi.value[Region.mesh.iBElements,:,:] = self.phi.value[owners_b,:,:]
         
         self.cfdUpdateBoundaryGradient(Region)
         if self.phiName=='U':

@@ -164,27 +164,6 @@ class Assemble:
         np.add.at(Region.coefficients.ac, boundary_owners, FluxCf_b)
         np.subtract.at(Region.coefficients.bc, boundary_owners, FluxTf_b)
 
-        # for iFace in range(numberOfInteriorFaces):
-        #     own = Region.mesh.owners[iFace]
-        #     nei = Region.mesh.neighbours[iFace]
-        #     own_anb_index = Region.mesh.upperAnbCoeffIndex[iFace]
-        #     nei_anb_index = Region.mesh.lowerAnbCoeffIndex[iFace]
-        #     # Assemble fluxes for owner cell    Region.coefficients.anb[0][0]
-        #     Region.coefficients.ac[own]                       +=  Region.fluxes.FluxCf[self.theEquationName][iFace].value
-        #     Region.coefficients.anb[own][own_anb_index]       +=  Region.fluxes.FluxFf[iFace]
-        #     Region.coefficients.bc[own]                       -=  Region.fluxes.FluxTf[iFace]
-        #     #   Assemble fluxes for neighbour cell
-        #     Region.coefficients.ac[nei]                       -=  Region.fluxes.FluxFf[iFace] #需调换顺序
-        #     Region.coefficients.anb[nei][nei_anb_index]       -=  Region.fluxes.FluxCf[iFace]
-        #     Region.coefficients.bc[nei]                       +=  Region.fluxes.FluxTf[iFace]
-
-        #   Assemble fluxes of cfdBoundary faces
-        # for iBFace in range(numberOfInteriorFaces,numberOfFaces):
-        #     own = Region.mesh.owners[iBFace]
-        #     #   Assemble fluxes for owner cell
-        #     Region.coefficients.ac[own]   +=  Region.fluxes.FluxCf[iBFace]
-        #     Region.coefficients.bc[own]   -=  Region.fluxes.FluxTf[iBFace]
-
     def cfdAssembleImplicitRelaxation(self,Region,*args):
         """
         Add the face and volume contributions to obtain ac, bc and ac_old
@@ -233,11 +212,11 @@ class Assemble:
         # DUSf = np.column_stack((np.squeeze(DU0_f)*Sf[:,0],np.squeeze(DU1_f)*Sf[:,1],np.squeeze(DU2_f)*Sf[:,2]))
         Region.fluid['DUSf'].phi[0:theNumberOfInteriorFaces,:]=DUSf
         magDUSf = mth.cfdMag(DUSf)
-        if Region.mesh.OrthogonalCorrectionMethod=='Minimum':
+        if Region.mesh.OrthogonalCorrectionMethod=='Minimum'or Region.mesh.OrthogonalCorrectionMethod=='minimum'or Region.mesh.OrthogonalCorrectionMethod=='corrected':
             Region.fluid['DUEf'].phi[0:theNumberOfInteriorFaces,:] = mth.cfdDot(DUSf,e)[:,None]*e
-        elif Region.mesh.OrthogonalCorrectionMethod=='Orthogonal':
+        elif Region.mesh.OrthogonalCorrectionMethod=='Orthogonal'or Region.mesh.OrthogonalCorrectionMethod=='orthogonal':
             Region.fluid['DUEf'].phi[0:theNumberOfInteriorFaces,:] =magDUSf[:,None]*e
-        elif Region.mesh.OrthogonalCorrectionMethod=='OverRelaxed':
+        elif Region.mesh.OrthogonalCorrectionMethod=='OverRelaxed'or Region.mesh.OrthogonalCorrectionMethod=='overRelaxed':
             eDUSf = mth.cfdUnit(DUSf.value)
             epsilon = 1e-10  # 定义一个小的正常数
             Region.fluid['DUEf'].phi[0:theNumberOfInteriorFaces,:] =(magDUSf/(mth.cfdDot(eDUSf,e)+ epsilon))[:,None]*e
@@ -260,11 +239,11 @@ class Assemble:
             DUSb=DUb*Sf_b
             Region.fluid['DUSf'].phi[iBFaces,:]=DUSb
             magSUDb = mth.cfdMag(DUSb)
-            if Region.mesh.OrthogonalCorrectionMethod=='Minimum':
+            if Region.mesh.OrthogonalCorrectionMethod=='Minimum'or Region.mesh.OrthogonalCorrectionMethod=='minimum'or Region.mesh.OrthogonalCorrectionMethod=='corrected':
                 Region.fluid['DUEf'].phi[iBFaces,:] = mth.cfdDot(DUSb,e)[:,None]*e
-            elif Region.mesh.OrthogonalCorrectionMethod=='Orthogonal':
+            elif Region.mesh.OrthogonalCorrectionMethod=='Orthogonal'or Region.mesh.OrthogonalCorrectionMethod=='orthogonal':
                 Region.fluid['DUEf'].phi[iBFaces,:] =magSUDb[:,None]*e
-            elif Region.mesh.OrthogonalCorrectionMethod=='OverRelaxed':
+            elif Region.mesh.OrthogonalCorrectionMethod=='OverRelaxed'or Region.mesh.OrthogonalCorrectionMethod=='overRelaxed':
                 epsilon = 1e-10  # 定义一个小的正常数
                 eDUSb =  mth.cfdUnit(DUSb.value)
                 Region.fluid['DUEf'].phi[iBFaces,:] =(magSUDb/(mth.cfdDot(eDUSb,e )+ epsilon))[:,None]*e

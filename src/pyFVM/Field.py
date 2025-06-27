@@ -393,7 +393,7 @@ class Field(DimensionChecked):
                         self.updateZeroGradient(Region,iBPatch)
                     elif self.type == 'volVectorField':
                         self.updateSymmetry(Region,iBPatch)
-                elif theBCType == 'zeroGradient'  :
+                elif theBCType == 'zeroGradient':
                     # if self.type == 'volScalarField':
                     #     self.updateZeroGradient(Region)
                     # if self.type == 'volVectorField':

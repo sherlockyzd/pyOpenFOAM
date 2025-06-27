@@ -321,6 +321,16 @@ class Quantity:
         return self
     
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs)-> 'Quantity':
+        if method == 'at' and ufunc is np.add:
+            target, idx, val = inputs
+            if not isinstance(target, Quantity):
+                return NotImplemented
+            # 获取底层 ndarray 并执行原子累加
+            if isinstance(val, Quantity) and val.dimension == target.dimension:
+                np.add.at(target.value, idx, val.value)
+                return target
+            else:
+                raise TypeError("原子加法仅支持 Quantity 对象与相同量纲的 Quantity 对象之间的操作。")
         if method != '__call__':
             return NotImplemented
 
