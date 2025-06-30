@@ -278,7 +278,7 @@ class Assemble:
                 io.cfdError(iTerm + ' term is not defined')
 
     def cfdPostAssembleContinuityEquation(self,Region,*args):
-        self.cfdAssembleDiagDominance(Region)
+        # self.cfdAssembleDiagDominance(Region)
         # self.cfdFixPressure(Region)
         Region.model.equations[self.theEquationName].cfdComputeScaledRMSResiduals(Region)
         
