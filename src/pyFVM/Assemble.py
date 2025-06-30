@@ -282,39 +282,39 @@ class Assemble:
         # self.cfdFixPressure(Region)
         Region.model.equations[self.theEquationName].cfdComputeScaledRMSResiduals(Region)
         
-    def cfdFixPressure(self,Region):
-        '''
-        Fix Pressure
-        '''
-        # if self.theEquationName=='p':
-        #     if Region.mesh.cfdIsClosedCavity:
-        #         # Timesolver=Region.Timesolver
-        #         # Get the pressure at the fixed value
-        #         try:
-        #             pRefCell = int(Region.dictionaries.fvSolution[Region.Timesolver]['pRefCell'])
-        #             # theElementNbIndices = Region.mesh.elementNeighbours[pRefCell]
-        #             # for iNBElement in range(len(Region.mesh.elementNeighbours[pRefCell])):
-        #             #     Region.coefficients.anb[pRefCell][iNBElement] = 0
-        #             # Region.coefficients.bc[pRefCell]= 0
-        #             Region.coefficients.ac[pRefCell] += 1e3 #TODO check
-        #         except KeyError:
-        #             io.cfdError('pRefCell not found')
-        pass
+    # def cfdFixPressure(self,Region):
+    #     '''
+    #     Fix Pressure
+    #     '''
+    #     # if self.theEquationName=='p':
+    #     #     if Region.mesh.cfdIsClosedCavity:
+    #     #         # Timesolver=Region.Timesolver
+    #     #         # Get the pressure at the fixed value
+    #     #         try:
+    #     #             pRefCell = int(Region.dictionaries.fvSolution[Region.Timesolver]['pRefCell'])
+    #     #             # theElementNbIndices = Region.mesh.elementNeighbours[pRefCell]
+    #     #             # for iNBElement in range(len(Region.mesh.elementNeighbours[pRefCell])):
+    #     #             #     Region.coefficients.anb[pRefCell][iNBElement] = 0
+    #     #             # Region.coefficients.bc[pRefCell]= 0
+    #     #             Region.coefficients.ac[pRefCell] += 1e3 
+    #     #         except KeyError:
+    #     #             io.cfdError('pRefCell not found')
+    #     pass
 
-    def cfdAssembleDiagDominance(self,Region,*args):#TODO check not needed
-    # ==========================================================================
-    # Enforce Diagonal Dominance as this may not be ensured
-    # --------------------------------------------------------------------------
-    # Get info and fields
-        # for iElement in range(Region.mesh.numberOfElements):
-        #     theNumberOfNeighbours = len(Region.coefficients.theCConn[iElement])
-        #     SumAik = 0
-        #     #   adding all the off diagonal pressure terms
-        #     for k in range(theNumberOfNeighbours):
-        #         Region.coefficients.anb[iElement][k]=min(Region.coefficients.anb[iElement][k],-1e-10)
-        #         SumAik -= Region.coefficients.anb[iElement][k]     
-        #     Region.coefficients.ac[iElement] = max(Region.coefficients.ac[iElement],SumAik)
-        pass
+    # def cfdAssembleDiagDominance(self,Region,*args):
+    # # ==========================================================================
+    # # Enforce Diagonal Dominance as this may not be ensured
+    # # --------------------------------------------------------------------------
+    # # Get info and fields
+    #     # for iElement in range(Region.mesh.numberOfElements):
+    #     #     theNumberOfNeighbours = len(Region.coefficients.theCConn[iElement])
+    #     #     SumAik = 0
+    #     #     #   adding all the off diagonal pressure terms
+    #     #     for k in range(theNumberOfNeighbours):
+    #     #         Region.coefficients.anb[iElement][k]=min(Region.coefficients.anb[iElement][k],-1e-10)
+    #     #         SumAik -= Region.coefficients.anb[iElement][k]     
+    #     #     Region.coefficients.ac[iElement] = max(Region.coefficients.ac[iElement],SumAik)
+    #     pass
 
     def cfdAssembleMassDivergenceAdvectionTerm(self,Region):
         io.cfdError('cfdCompressible solver not yet written')

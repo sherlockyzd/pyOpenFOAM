@@ -88,12 +88,11 @@ class Region():
             self.model.residuals['sumRes']=0.0
             self.MomentumIteration()
             self.ContinuityIteration()
+            self.ScalarTransportIteration()
             if self.model.residuals['sumRes'] < 1e-5:
-                self.ScalarTransportIteration()
                 break
-
+        print('迭代 %d 次后完成收敛' % iter)
         
-
     def PISOIteration(self):
         self.model.residuals['sumRes']=0.0
         self.MomentumIteration()
