@@ -66,11 +66,11 @@ class Model():
                     parts=io.term_split(iterm)
                     terms_to_remove = ['laplacian', 'T']
                     str_gammas=io.remove_terms(parts,terms_to_remove)[0]
-                    try:
+                    if str_gammas in Region.fluid:
                         self.equations['T'].gamma=Region.fluid[str_gammas].phi*Region.fluid['rho'].phi
-                    except AttributeError:
-                        self.equations['T'].gamma=Region.fluid['k'].phi/Region.fluid['Cp'].phi*Region.fluid['rho'].phi
-                        print("self.equations['T'].gamma information doesn't exist in the FoamDictionaries object")
+                    else:
+                        # self.equations['T'].gamma=Region.fluid['k'].phi/(Region.fluid['Cp'].phi*Region.fluid['rho'].phi)
+                        io.cfdError("self.equations['T'].gamma information doesn't exist in the FoamDictionaries object")
             
             for iterm in Region.dictionaries.fvSchemes['divSchemes']:
                 if io.contains_term(iterm,'T'):
@@ -153,7 +153,13 @@ class Model():
         for equation_name in self.equations:
             self.residuals[equation_name] = {}
             # Initialize the residuals for each equation
-            self.residuals[equation_name].setdefault('time', [])
-            self.residuals[equation_name].setdefault('residuals', [])
-            self.residuals[equation_name].setdefault('iterations', [])
+            self.residuals[equation_name] = {
+            'time': [],
+            'iterations': [],
+            # U 要预先建好 Ncomp 个子列表
+            'residuals': []
+            }
+            if equation_name == 'U':
+                # 其他方程只要一个列表
+                self.residuals[equation_name]['residuals'] = [[] for _ in range(3)]
 

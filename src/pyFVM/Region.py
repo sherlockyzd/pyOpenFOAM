@@ -1,4 +1,4 @@
-import numpy as np
+import pyFVM.cfdfunction as cfun
 import cfdtool.IO as io
 import pyFVM.FoamDictionaries as fd
 import pyFVM.Polymesh as pm
@@ -48,46 +48,93 @@ class Region():
         while(self.time.cfdDoTransientLoop()):
             #manage time
             self.time.cfdPrintCurrentTime()
-            for iTerm in self.model.equations:
-                self.fluid[iTerm].setPreviousTimeStep()
-                self.fluid[iTerm].cfdfieldUpdateGradient(self)
-            for iter in range(self.time.maxIter):
-                self.time.iterationCount += 1
-                self.model.residuals['sumRes']=0.0
-                for iTerm in self.model.equations:
-                    #sub-loop
-                    if iTerm=='U':
-                        self.MomentumIteration()
-                    elif iTerm=='p':
-                        self.ContinuityIteration()
-                    else:
-                        self.ScalarTransportIteration(iTerm)
-                if self.model.residuals['sumRes'] < 1e-5:
-                    break
-            # plt.cfdPlotRes(self.caseDirectoryPath,self.model.equations)
+            self.SolveEquations() #根据SIMPLE或PISO算法求解方程
+            self.cfdUpdate()
             plt.plotResidualHistory(self)
             self.time.cfdUpdateRunTime()
             if self.time.cfdDoWriteTime():            
                 io.cfdWriteOpenFoamParaViewData(self)
                 pass
 
+    def cfdUpdate(self):
+        for iTerm in self.model.equations:
+            self.fluid[iTerm].setPreviousTimeStep()
+            self.fluid[iTerm].cfdfieldUpdateGradient(self)            
+
+    def SolveEquations(self):
+        """
+        Solves the equations for the current time step.
+        This method performs the following steps:
+        1. Iterates through the momentum equations for each component.
+        2. Iterates through the continuity equation.
+        3. Iterates through the scalar transport equation.
+        """
+        if self.Timesolver == 'PISO':
+            self.PISOIteration()
+        elif self.Timesolver == 'SIMPLE':
+            self.SIMPLEIteration()
+        else:
+            io.cfdError('Unknown time solver type: %s' % self.Timesolver)
+
+    def SIMPLEIteration(self):
+        """
+        Performs the SIMPLE iteration for the momentum and continuity equations.
+        This method iterates through the momentum equations for each component,
+        then iterates through the continuity equation, and finally updates the
+        mass flow rate field.
+        """
+        for iter in range(self.time.maxIter):
+            self.time.iterationCount += 1
+            self.model.residuals['sumRes']=0.0
+            self.MomentumIteration()
+            self.ContinuityIteration()
+            if self.model.residuals['sumRes'] < 1e-5:
+                self.ScalarTransportIteration()
+                break
+
+        
+
+    def PISOIteration(self):
+        self.model.residuals['sumRes']=0.0
+        self.MomentumIteration()
+        for iter in range(self.time.maxIter):
+            self.time.iterationCount += 1
+            self.ContinuityIteration()
+            self.ScalarTransportIteration()
+            if self.model.residuals['sumRes'] < 1e-5:
+                break
+            self.model.residuals['sumRes']=0.0
+        print('迭代 %d 次后完成收敛' % iter)
+
     def MomentumIteration(self):
+        """        Performs the momentum iteration for the momentum equations.
+        This method iterates through the momentum equations for each component,
+        assembles the equations, and updates the equations for each component.  
+        """
+        if 'U' not in self.model.equations:
+            return
         numVector=self.fluid['U'].iComponent
         for iComponent in range(numVector):
             io.MomentumPrintIteration(iComponent)
             self.assembledPhi['U'].cfdAssembleEquation(self,iComponent)
             self.cfdSolveUpdateEquation('U',iComponent)
+        self.cfdUpdateMassFlowRate()
 
     def ContinuityIteration(self): 
+        if 'p' not in self.model.equations:
+            return
         io.ContinuityPrintIteration()
         self.assembledPhi['p'].cfdAssembleEquation(self)
         self.cfdSolveUpdateEquation('p')
         self.cfdCorrectNSSystemFields()
 
-    def ScalarTransportIteration(self,iTerm):
+    def ScalarTransportIteration(self):
         io.ScalarTransportPrintIteration()
-        self.assembledPhi[iTerm].cfdAssembleEquation(self)
-        self.cfdSolveUpdateEquation(iTerm)
+        for iTerm in self.model.equations:
+            if iTerm == 'U' or iTerm == 'p':
+                continue
+            self.assembledPhi[iTerm].cfdAssembleEquation(self)
+            self.cfdSolveUpdateEquation(iTerm)
 
     def cfdSolveUpdateEquation(self,theEquationName,iComponent=-1):
         solve.cfdSolveEquation(self,theEquationName,iComponent)
@@ -99,9 +146,11 @@ class Region():
 
     def cfdCorrectNSSystemFields(self):
         theNumberOfElements=self.mesh.numberOfElements
-        self.fluid['pprime'].phi[:theNumberOfElements].value = self.coefficients.dphi[:,None]
-        self.fluid['pprime'].cfdfieldUpdate(self)#更新pprime的梯度，来计算速度增量
+        self.fluid['pprime'].phi.value[:theNumberOfElements] = self.coefficients.dphi[:,None]
+        self.fluid['pprime'].cfdfieldUpdate(self)
+        self.fluid['pprime'].cfdfieldUpdateGradient(self)
         self.fluid['U'].cfdCorrectNSFields(self)
+        self.cfdUpdateMassFlowRate()
         self.cfdUpdateProperty()
 
     def StartSession(self):
@@ -168,13 +217,18 @@ class Region():
         else:
             self.model.residuals[theEquationName]['residuals'].append(self.assembledPhi[theEquationName].theEquation.finalResidual)
             self.model.residuals['sumRes']+=self.assembledPhi[theEquationName].theEquation.finalResidual
-        self.model.residuals[theEquationName]['time'].append(self.time.currentTime)
-        self.model.residuals[theEquationName]['iterations'].append(self.time.iterationCount)
+        if iComponent==-1 or iComponent==2:
+            self.model.residuals[theEquationName]['time'].append(self.time.currentTime)
+            self.model.residuals[theEquationName]['iterations'].append(self.time.iterationCount)
         
-
-    # def check_iteration_Convergence(self):
-        
-
+    def cfdUpdateMassFlowRate(self):
+        """
+        Updates the mass flow rate field 'mdot_f' based on the current velocity field 'U' and density field 'rho'.
+        This method interpolates the velocity and density fields from the cell centers to the faces and calculates the mass flow rate.
+        """
+        if 'U' in self.fluid and 'rho' in self.fluid:
+            # Interpolate velocity and density from cell centers to faces
+            cfun.initializeMdotFromU(self)
 
 
     def cfdUpdateProperty(self):

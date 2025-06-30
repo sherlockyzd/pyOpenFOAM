@@ -241,7 +241,7 @@ class Field(DimensionChecked):
             try:
                 pRefCell = int(Region.dictionaries.fvSolution[Region.Timesolver]['pRefCell'])
                 pRefValue = Region.coefficients.dphi[pRefCell]
-                Region.coefficients.dphi -= pRefValue
+                Region.coefficients.dphi -= pRefValue  # 参考压力修正
             except KeyError:
                 io.cfdError('pRefCell not found')
 
@@ -490,7 +490,7 @@ class Field(DimensionChecked):
             theNumberOfElements = Region.coefficients.NumberOfElements
             # Get fields
             DU  =Region.fluid['DU'].phi[:theNumberOfElements,:]
-            ppGrad = np.squeeze(Region.fluid['pprime'].Grad.phi)[0:theNumberOfElements,:]
+            ppGrad = np.squeeze(Region.fluid['pprime'].Grad.phi[:theNumberOfElements,:])
             #  Calculate Dc*gradP
             DUPPGRAD = DU*ppGrad
             # Correct velocity

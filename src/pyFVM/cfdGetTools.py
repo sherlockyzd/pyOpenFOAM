@@ -46,7 +46,7 @@ def cfdGetSubArrayForInterior(theFieldName,Region,*args):
             iComponent = args[0]
             return  Region.fluid[theFieldName].phi[:Region.mesh.numberOfInteriorFaces,iComponent] 
         else:
-            phiInteriorSubArray =  Region.fluid[theFieldName].phi[:Region.mesh.numberOfInteriorFaces, :]
+            return  Region.fluid[theFieldName].phi[:Region.mesh.numberOfInteriorFaces, :]
     elif Fieldtype == 'volScalarField':
         return  Region.fluid[theFieldName].phi[:Region.mesh.numberOfElements]    
     elif Fieldtype == 'volVectorField':
