@@ -9,9 +9,15 @@ def cfdSolveEquation(Region,theEquationName, iComponent):
     maxIter   = Region.dictionaries.fvSolution['solvers'][theEquationName]['maxIter']
     tolerance = Region.dictionaries.fvSolution['solvers'][theEquationName]['tolerance']
     relTol    = Region.dictionaries.fvSolution['solvers'][theEquationName]['relTol']
+    if solver in ['GAMG','smoothSolver']:
+        pass
+    elif solver == 'PCG':
+        Region_csr_format(Region)
+    else:
+        io.cfdError(solver+' solver has not beeen defined!!!')
 
     if solver=='GAMG':
-        #    Get GAMG settings
+        # Get GAMG settings
         preconditioner = Region.dictionaries.fvSolution['solvers'].get(theEquationName, {}).get('preconditioner', None)
         nPreSweeps     = Region.dictionaries.fvSolution['solvers'].get(theEquationName, {}).get('nPreSweeps', None)
         nPostSweeps    = Region.dictionaries.fvSolution['solvers'].get(theEquationName, {}).get('nPostSweeps', None)
@@ -35,6 +41,13 @@ def cfdSolveEquation(Region,theEquationName, iComponent):
         Region.assembledPhi[theEquationName].theEquation.initResidual=initRes
         Region.assembledPhi[theEquationName].theEquation.finalResidual=finalRes
 
+
+def Region_csr_format(Region):
+    if Region.coefficients._A_sparse_needs_update:
+        Region.mesh._init_csr_format()
+        Region.coefficients._init_csr_format(Region)
+
+
 '''
 -----------------------------------------------------------
 smooth Solver
@@ -55,23 +68,43 @@ def cfdSolveAlgebraicSystem(gridLevel,theEquationName,theCoefficients,smoother =
     Returns:
         tuple: A tuple containing the initial residual and final residual.
     """
+    # 获取矩阵格式
+    matrix_format = theCoefficients.MatrixFormat
 
-    ac = theCoefficients.ac
-    anb = theCoefficients.anb
-    bc = theCoefficients.bc
-    cconn = theCoefficients.theCConn
-    dphi = theCoefficients.dphi
-    # theNumberOfElements = theCoefficients.NumberOfElements
-
-    #    Compute initial residual
+    # Compute initial residual
     residualsArray = theCoefficients.cfdComputeResidualsArray()
     initialResidual = mth.cfdResidual(residualsArray)
     finalResidual = initialResidual
+    if maxIter == 0:
+        return initialResidual, finalResidual
 
-    if maxIter==0:
-        return
+    # 根据矩阵格式选择求解方法
+    if matrix_format == 'acnb':
+        return _solve_acnb_format(theCoefficients, smoother, maxIter, tolerance, relTol, initialResidual)
+    elif matrix_format == 'ldu':
+        return _solve_ldu_format(theCoefficients, smoother, maxIter, tolerance, relTol, initialResidual)
+    elif matrix_format in ['csr', 'coo']:
+        return _solve_sparse_format(theCoefficients, smoother, maxIter, tolerance, relTol, initialResidual)
+    else:
+        raise ValueError(f"Unsupported matrix format: {matrix_format}")
+
+
+def _solve_acnb_format(theCoefficients, smoother, maxIter, tolerance, relTol, initialResidual):
+    """ACNB格式的求解（原始方法）"""
+    ac = theCoefficients.ac
+    anb = theCoefficients.anb
+    bc = theCoefficients.bc
+    cconn = theCoefficients._theCConn
+    dphi = theCoefficients.dphi
+    # theNumberOfElements = theCoefficients.NumberOfElements
     # rc=bc-theCoefficients_Matrix_multiplication(ac,anb,cconn,dphi)
+    # Compute initial residual
+    residualsArray = theCoefficients.cfdComputeResidualsArray()
+    # initialResidual = mth.cfdResidual(residualsArray)
+    finalResidual = initialResidual
+
     if smoother=='DILU':
+        # 使用原始的ILU分解
         #    Factorize Ax=b (Apply incomplete upper lower decomposition)
         dc = cfdFactorizeILU(ac,anb,cconn)
         #    Solve system
@@ -84,8 +117,8 @@ def cfdSolveAlgebraicSystem(gridLevel,theEquationName,theCoefficients,smoother =
             if (finalResidual<relTol*initialResidual) and (finalResidual<tolerance):
                 break
 
-    elif smoother=='SOR' or smoother=='GaussSeidel'  or smoother=='symGaussSeidel':
-        #    Solve system
+    elif smoother in ['SOR', 'GaussSeidel', 'symGaussSeidel']:
+        # Solve system 使用原始的SOR/GS方法
         for iter in range(maxIter):
             dphi = cfdSolveSOR(ac,anb,bc,cconn,dphi)
             theCoefficients.dphi = dphi
@@ -98,6 +131,183 @@ def cfdSolveAlgebraicSystem(gridLevel,theEquationName,theCoefficients,smoother =
     theCoefficients.dphi = dphi
     return initialResidual,finalResidual
     # pass
+
+def _solve_ldu_format(theCoefficients, smoother, maxIter, tolerance, relTol, initialResidual):
+    """LDU格式的高效求解"""
+    diag = theCoefficients.Diag  # LDU格式中对角就是ac
+    upper = theCoefficients.Upper
+    lower = theCoefficients.Lower
+    bc = theCoefficients.bc
+    dphi = theCoefficients.dphi
+
+    if smoother == 'DILU':
+        # LDU格式的优化DILU
+        dc = _factorize_ldu_dilu(diag, upper, lower, theCoefficients)
+        for iter in range(maxIter):
+            dphi = _solve_ldu_dilu(diag, upper, lower, bc, dc, dphi,theCoefficients)
+            theCoefficients.dphi = dphi
+
+            residualsArray = theCoefficients.cfdComputeResidualsArray()
+            finalResidual = mth.cfdResidual(residualsArray)
+            if (finalResidual < relTol * initialResidual) and (finalResidual <tolerance):
+                break
+
+        print("LDU格式DILU求解完成")
+
+    elif smoother in ['SOR', 'GaussSeidel', 'symGaussSeidel']:
+        # LDU格式的优化GS/SOR
+        for iter in range(maxIter):
+            dphi = _solve_ldu_sor(diag, upper, lower, bc, dphi, theCoefficients)
+            theCoefficients.dphi = dphi
+
+            residualsArray = theCoefficients.cfdComputeResidualsArray()
+            finalResidual = mth.cfdResidual(residualsArray)
+            if (finalResidual < relTol * initialResidual) and (finalResidual <tolerance):
+                break
+
+        # 打印完成
+        print("LDU格式SOR求解完成")
+
+    theCoefficients.dphi = dphi
+    return initialResidual, finalResidual
+
+def _solve_sparse_format(theCoefficients, smoother, maxIter, tolerance, relTol,initialResidual):
+    """CSR/COO格式的scipy求解"""
+    # 获取scipy稀疏矩阵
+    A_sparse = theCoefficients.data_sparse_matrix_update()
+    bc = theCoefficients.bc
+    dphi = theCoefficients.dphi
+
+    if smoother == 'DILU':
+        # 使用scipy的稀疏ILU
+        from scipy.sparse.linalg import spsolve, spilu, LinearOperator
+        try:
+            ilu = spilu(A_sparse)
+            M = LinearOperator(shape=A_sparse.shape, matvec=lambda x: ilu.solve(x))
+
+            for iter in range(maxIter):
+                residual = bc - A_sparse @ dphi
+                z = ilu.solve(residual)
+                dphi += z
+                theCoefficients.dphi = dphi
+
+                residualsArray = theCoefficients.cfdComputeResidualsArray()
+                finalResidual = mth.cfdResidual(residualsArray)
+                if (finalResidual < relTol * initialResidual) and (finalResidual <tolerance):
+                    break
+        except:
+            # 回退到直接求解
+            dphi = spsolve(A_sparse, bc)
+            theCoefficients.dphi = dphi
+            finalResidual = mth.cfdResidual(bc - A_sparse @ dphi)
+
+    elif smoother in ['SOR', 'GaussSeidel', 'symGaussSeidel']:
+        # 使用scipy的迭代求解器
+        from scipy.sparse.linalg import cg, gmres
+        try:
+            dphi, info = cg(A_sparse, bc, x0=dphi, rtol=tolerance, maxiter=maxIter)
+            theCoefficients.dphi = dphi
+            finalResidual = mth.cfdResidual(bc - A_sparse @ dphi)
+        except:
+            dphi, info = gmres(A_sparse, bc, x0=dphi, rtol=tolerance, maxiter=maxIter)
+            theCoefficients.dphi = dphi
+            finalResidual = mth.cfdResidual(bc - A_sparse @ dphi)
+
+    return initialResidual, finalResidual
+
+def _factorize_ldu_dilu(diag, upper, lower, theCoefficients):
+    """
+    生成 DILU 的对角近似 D（返回其倒数 dc = 1/D）。
+    对每个 owner-neighbour 面，仅用一次“较低编号行 → 较高编号行”的更新；
+    若编号相反则对 owner 行做对称更新，避免丢一半面贡献。
+    """
+    dc = diag.copy()
+    # owners = theCoefficients._lowerAddr
+    neighbours = theCoefficients._upperAddr
+    facesAsOwner = theCoefficients._facesAsOwner
+
+    nC  = len(diag)
+    # nIf = len(upper)
+
+    tiny = 1e-30  # 防止除零
+    for i in range(nC):                         # 按行递增
+        Di = dc[i]
+        if Di <= tiny: 
+            Di = dc[i] = tiny
+        for f in facesAsOwner[i]:
+            j = neighbours[f]                   # j > i（owner<neigh）
+            dc[j] -= (lower[f] * upper[f]) / Di
+
+    invD = 1.0 / dc
+    return invD
+
+def _solve_ldu_dilu(diag, upper, lower, bc, invD, dphi, theCoefficients):
+    """
+    应用 M^{-1} r，其中 M ≈ L D U（DILU）。
+    标准顺序：y = L^{-1} r； y = D^{-1} y； y = U^{-1} y； dphi += y
+    L[j,i] = lower[f] / D[i]，U[i,j] = upper[f] / D[j]，D^{-1} = dc。
+    """
+    # owners = theCoefficients._lowerAddr
+    neighbours = theCoefficients._upperAddr
+    facesAsOwner = theCoefficients._facesAsOwner
+    # nFaces = len(upper)
+    nC  = len(diag)
+
+    # 1) residual r = bc - A dphi
+    # 建议直接调你已有的残差函数：theCoefficients.cfdComputeResidualsArray()
+    r = theCoefficients.cfdComputeResidualsArray().copy()
+
+    # 2) Forward sweep on L (按 i 递增)
+    for i in range(nC):
+        ri = r[i]
+        invDi = invD[i]
+        for f in facesAsOwner[i]:
+            j = neighbours[f]
+            r[j] -= lower[f] * invDi * ri
+
+    # 3) Backward sweep on U (按 i 递减)
+    for i in range(nC-1, -1, -1):
+        for f in facesAsOwner[i]:
+            j = neighbours[f]
+            r[i] -= upper[f] * invD[j] * r[j]
+
+    # 4) Diagonal scaling & update
+    dphi += invD * r
+    return dphi
+
+def _solve_ldu_sor(diag, upper, lower, bc, dphi, theCoefficients):
+    """LDU格式的高效SOR求解 - 使用预计算的facesAsOwner和facesAsNeighbor"""
+    numberOfElements = len(diag)
+    neighbors = theCoefficients._upperAddr
+    owners = theCoefficients._lowerAddr
+    facesAsOwner = theCoefficients._facesAsOwner
+    facesAsNeighbor = theCoefficients._facesAsNeighbour
+
+    # 前向扫描
+    for i in range(numberOfElements):
+        sigma = bc[i]
+        # 作为owner的面（连接到高编号邻居）
+        for face in facesAsOwner[i]:
+            j = neighbors[face]
+            sigma -= upper[face] * dphi[j]
+        # 作为neighbor的面（连接到低编号邻居）
+        for face in facesAsNeighbor[i]:
+            sigma -= lower[face] * dphi[owners[face]]
+        dphi[i] = sigma / diag[i]
+
+    # 后向扫描
+    for i in range(numberOfElements-1, -1, -1):
+        sigma = bc[i]
+        # 作为owner的面（连接到高编号邻居）
+        for face in facesAsOwner[i]:
+            j = neighbors[face]
+            sigma -= upper[face] * dphi[j]
+        # 作为neighbor的面（连接到低编号邻居）
+        for face in facesAsNeighbor[i]:
+            sigma -= lower[face] * dphi[owners[face]]
+        dphi[i] = sigma / diag[i]
+
+    return dphi
 
 def cfdFactorizeILU(ac, anb, cconn):
     """
@@ -265,7 +475,8 @@ PCG Solver
 '''
 # 更新PCG求解器以支持多种预处理器
 def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'):
-    A_sparse=theCoefficients.assemble_sparse_matrix()
+    # A_sparse=theCoefficients.assemble_sparse_matrix()
+    A_sparse=theCoefficients.data_sparse_matrix_update()
     theCoefficients.verify_matrix_properties()
 
     r = theCoefficients.cfdComputeResidualsArray()
@@ -273,9 +484,6 @@ def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'
     if initRes < tolerance or maxIter == 0:
         return initRes, initRes
     
-    # ac = theCoefficients.ac
-    # anb = theCoefficients.anb
-    # cconn = theCoefficients.theCConn
     dphi = np.copy(theCoefficients.dphi)  # Initial guess
     bc = theCoefficients.bc
 

@@ -53,63 +53,138 @@ class Coefficients():
         ## local attribute of simulation's region instance
         # self.region=Region
         # self.setupCoefficients()
+        self.MatrixFormat = Region.mesh.MatrixFormat # 默认格式
+        self.NumberOfElements=int(Region.mesh.numberOfElements)
+        ## see ac, however this is for the previous timestep? Check this later when you know more. 
+        # self.ac_old=np.zeros((self.NumberOfElements),dtype=np.float64)
+        # self._init_csr_format(Region)
+        # 根据格式初始化不同的数据结构
+        self._initialize_matrix_structure(Region)
 
     # def setupCoefficients(self,**kwargs):
     #     """Setups empty arrays containing the coefficients (ac and bc) required to solve the system of equations
     #     """
     #     if len(kwargs)==0:
-            
         ## (list of lists) identical to polyMesh.elementNeighbours. Provides a list where each index represents an element in the domain. Each index has an associated list which contains the elements for which is shares a face (i.e. the neighbouring elements).
-        self.theCConn = Region.mesh.elementNeighbours
-        
-        ## array containing the number of neighbouring elements for each element in the domain
-        self.theCSize = np.array([int(len(neighbours)) for neighbours in self.theCConn],dtype=np.int32)  # 强制转换为整数
-
-        theNumberOfElements=int(len(self.theCConn))
-
-        self.NumberOfElements=theNumberOfElements
-        
-        ## array of cell-centered contribution to the flux term. These are constants and constant diffusion coefficients and therefore act as 'coefficients' in the algebraic equations. See p. 229 Moukalled.
-        self.ac=np.zeros((theNumberOfElements),dtype=np.float64)
-        
-        ## see ac, however this is for the previous timestep? Check this later when you know more. 
-        self.ac_old=np.zeros((theNumberOfElements),dtype=np.float64)
-        
         ## array of the boundary condition contributions to the flux term.
-        self.bc=np.zeros((theNumberOfElements),dtype=np.float64)
-
-        # 使用NumPy对象数组，允许每个元素的邻居数不一样
-        self.anb = [np.zeros(len(neighbors), dtype=np.float64) for neighbors in self.theCConn]
-        # self.anb = np.empty(theNumberOfElements, dtype=object)
-        # for iElement in range(theNumberOfElements):
-        #     # easiest way to make a list of zeros of defined length ...
-        #     self.anb[iElement] = np.zeros(int(self.theCSize[iElement]),dtype=float)
+        self.bc=np.zeros((self.NumberOfElements),dtype=np.float64)
+        self.dphi=np.zeros((self.NumberOfElements),dtype=np.float64)
         
-        self.dphi=np.zeros((theNumberOfElements),dtype=np.float64)
+
+    def _initialize_matrix_structure(self, Region):
+        """Initialize the matrix structure based on the specified format."""
+        """根据MatrixFormat初始化对应的数据结构"""
         self._A_sparse_needs_update = True
-        # self.dc=np.zeros((theNumberOfElements),dtype=float)
-        # self.rc=np.zeros((theNumberOfElements),dtype=float)
+        # 控制是否总是使用稀疏矩阵（默认False，保持原有行为）
+        # 原来只有压力泊松方程使用稀疏矩阵，动量方程和标量方程不转换
+        self._sparse_always = getattr(Region, 'sparse_always', False)
+
+        if self.MatrixFormat == 'acnb':
+            self._init_acnb_format(Region)
+            if self._sparse_always:
+                self._init_csr_format(Region)
+        elif self.MatrixFormat == 'ldu':
+            self._init_ldu_format(Region)
+            if self._sparse_always:
+                self._init_csr_format(Region)
+        elif self.MatrixFormat == 'csr':
+            self._init_csr_format(Region)
+        elif self.MatrixFormat == 'coo':
+            self._init_coo_format(Region)
+        else:
+            raise ValueError(f"Unsupported MatrixFormat: {self.MatrixFormat}")
+
+    def _init_ldu_format(self, Region):
+        # Initialize the LDU matrix structure
+        self._upperAddr=Region.mesh.lduUpperAddr
+        self._lowerAddr=Region.mesh.lduLowerAddr
+        self._facesAsOwner = Region.mesh.facesAsOwner
+        self._facesAsNeighbour = Region.mesh.facesAsNeighbour
+        self.Diag  = np.zeros((Region.mesh.numberOfElements), dtype=np.float64)
+        self.Upper = np.zeros((Region.mesh.numberOfInteriorFaces), dtype=np.float64)
+        self.Lower = np.zeros((Region.mesh.numberOfInteriorFaces), dtype=np.float64)
+        
+    def _init_coo_format(self, Region):
+        # Initialize the COO matrix structure
+        self._row = Region.mesh.cooRow
+        self._col = Region.mesh.cooCol
+        self._coofaceToRowIndex = Region.mesh.coofaceToRowIndex
+        self._coodiagPositions = Region.mesh.coodiagPositions
+        self.coodata = np.zeros(len(self._row), dtype=np.float64)
+
+    def _init_csr_format(self, Region):
+        # NumberOfElements=self.NumberOfElements
+        # 组装矩阵结构部分（indices 和 indptr）
+        self._indptr = Region.mesh.csrindptr
+        self._indices = Region.mesh.csrindices
+        self._csrfaceToRowIndex=Region.mesh.csrfaceToRowIndex
+        # self._diag_positions = self._indptr[:-1]  # 每行起始位置就是对角位置
+        self.csrdata = np.zeros(len(self._indices), dtype=np.float64)
+
+    def _init_acnb_format(self, Region):
+        """Initialize the matrix structure for the 'acnb' format."""
+        ## array of cell-centered contribution to the flux term. These are constants and constant diffusion coefficients and therefore act as 'coefficients' in the algebraic equations. See p. 229 Moukalled.
+        self._theCConn = Region.mesh.elementNeighbours
+        self.ac=np.zeros((self.NumberOfElements),dtype=np.float64)#矩阵对角线元素
+        # 使用NumPy对象数组，允许每个元素的邻居数不一样
+        self.anb = [np.zeros(len(neighbors), dtype=np.float64) for neighbors in self._theCConn]
+
+    def data_sparse_matrix_update(self):
+        """Assembles the original matrix A from method To the sparse matrix csr format."""
+        if self.MatrixFormat=='acnb':
+            self._assemble_acnb_to_csr()
+        elif self.MatrixFormat=='coo':
+            self._assemble_coo_to_coo()
+        elif self.MatrixFormat=='ldu':
+            self._assemble_ldu_to_csr()
+        elif self.MatrixFormat=='csr':
+            self._assemble_csr_to_csr()
+        else:
+            raise ValueError(f"Unknown method")
+
+        self._A_sparse_needs_update = False
+        return self._A_sparse
+
 
     def cfdZeroCoefficients(self):
         # ==========================================================================
         #  Routine Description:
         #    This function zeros the coefficients
         # --------------------------------------------------------------------------
-
         # array of cell-centered contribution to the flux term. These are constants and constant diffusion coefficients and therefore act as 'coefficients' in the algebraic equations. See p. 229 Moukalled.
-        self.ac.fill(0)
-        self.ac_old.fill(0)
         # array of the boundary condition contributions to the flux term.
         self.bc.fill(0)
-        # reset the anb list of lists
-        for iElement in range(self.NumberOfElements):
-            self.anb[iElement].fill(0)
         self.dphi.fill(0)
         self._A_sparse_needs_update = True
-        # self.dc.fill(0)
-        # self.rc.fill(0)
+        if self.MatrixFormat == 'acnb':
+            self.ac.fill(0)
+            # reset the anb list of lists
+            for iElement in range(self.NumberOfElements):
+                self.anb[iElement].fill(0)
+        elif self.MatrixFormat == 'ldu':
+            self.Diag.fill(0)
+            # reset the lower and upper lists
+            self.Lower.fill(0)
+            self.Upper.fill(0)
+        elif self.MatrixFormat == 'csr':
+            self.csrdata.fill(0)
+        elif self.MatrixFormat == 'coo':
+            self.coodata.fill(0)
 
-    def assemble_sparse_matrix_coo(self):
+    def _assemble_csr_to_csr(self):
+        """
+        Assemble the sparse matrix A from ac, anb, and cconn.
+        """
+        # Implementation for assembling acnb to csr
+        if not hasattr(self, '_A_sparse'):
+            from scipy.sparse import csr_matrix
+            # # Create the sparse matrix in COO format
+            self._A_sparse = csr_matrix((self.csrdata, self._indices, self._indptr), shape=(self.NumberOfElements, self.NumberOfElements))
+        else:
+            # Update existing data array
+            self._A_sparse.data = self.csrdata
+
+    def _assemble_coo_to_coo(self):
         """
         Assemble the sparse matrix A from ac, anb, and cconn.
         Args:
@@ -121,73 +196,18 @@ class Coefficients():
             A_sparse (scipy.sparse.csr_matrix): The assembled sparse matrix in CSR format.
         """
         numberOfElements = self.NumberOfElements
-        if not hasattr(self, '_coo_structure'):
-            # row_indices = []
-            # col_indices = []
-            # # Add diagonal elements
-            # for i in range(numberOfElements):
-            #     row_indices.append(i)
-            #     col_indices.append(i)
-            # # Add off-diagonal elements
-            # for i in range(numberOfElements):
-            #     neighbors = self.theCConn[i]
-            #     anb_values = self.anb[i]
-            #     for j_, j in enumerate(neighbors):
-            #         row_indices.append(i)
-            #         col_indices.append(j)
-            # self._coo_row_indices=np.array(row_indices, dtype=np.int32)
-            # self._coo_col_indices=np.array(col_indices, dtype=np.int32)
-
-            # Precompute the row and column indices
-            # Diagonal indices
-            diag_indices = np.arange(numberOfElements, dtype=np.int32)
-
-            # Off-diagonal indices
-            off_diag_row_indices = []
-            off_diag_col_indices = []
-            for i in range(numberOfElements):
-                neighbors = self.theCConn[i]
-                off_diag_row_indices.extend([i] * len(neighbors))
-                off_diag_col_indices.extend(neighbors)
-
-            # Combine indices
-            self._coo_row_indices = np.concatenate([diag_indices, np.array(off_diag_row_indices, dtype=np.int32)])
-            self._coo_col_indices = np.concatenate([diag_indices, np.array(off_diag_col_indices, dtype=np.int32)])
-            self._coo_structure = True
-
-        # data = []
-        # # Add diagonal elements
-        # for i in range(numberOfElements):
-        #     data.append(self.ac[i])
-        # # Add off-diagonal elements
-        # for i in range(numberOfElements):
-        #     neighbors = self.theCConn[i]
-        #     anb_values = self.anb[i]
-        #     for j_, j in enumerate(neighbors):
-        #         data.append(anb_values[j_])
-        # data=np.array(data, dtype=np.float64)
-        # Assemble data array
-        # Diagonal data
-        diag_data = self.ac.astype(np.float64)
-        # Off-diagonal data
-        off_diag_data = np.concatenate(self.anb).astype(np.float64)
-        # Combine data
-        data = np.concatenate([diag_data, off_diag_data])
-
         if not hasattr(self, '_A_sparse'):
             from scipy.sparse import coo_matrix
-            # Create the sparse matrix in COO format
-            A_coo = coo_matrix((data, (self._coo_row_indices, self._coo_col_indices)), shape=(numberOfElements, numberOfElements))
+            # # Create the sparse matrix in COO format
+            self._A_sparse = coo_matrix((self.coodata, (self._row, self._col)), shape=(numberOfElements, numberOfElements))
             # Convert to CSR format for efficient arithmetic and solving
-            self._A_sparse = A_coo.tocsr()
+            # self._A_sparse = A_coo.tocsr()
         else:
             # Update existing data array
-            self._A_sparse.data[:numberOfElements] = diag_data
-            self._A_sparse.data[numberOfElements:] = off_diag_data
-        self._A_sparse_needs_update = False
+            self._A_sparse.data = self.coodata
 
 
-    def assemble_sparse_matrix_csr(self):
+    def _assemble_acnb_to_csr(self):
         """
         使用 Numpy 数组将 ac, anb 和 cconn 组装成 CSR 格式的稀疏矩阵。
 
@@ -201,88 +221,127 @@ class Coefficients():
             indices (ndarray): 非零值对应的列索引。
             indptr (ndarray): 每一行在 data 和 indices 中的起始位置索引。
         """
-        NumberOfElements=self.NumberOfElements
-        if not hasattr(self, '_csr_structure'):
-            # 组装矩阵结构部分（indices 和 indptr）
-            indptr = np.zeros(NumberOfElements + 1, dtype=np.int32)
-            indices = []
-            for i in range(NumberOfElements):
-                neighbors = self.theCConn[i]
-                # Diagonal and off-diagonal indices
-                row_indices = [i] + neighbors
-                indices.extend(row_indices)
-                indptr[i + 1] = indptr[i] + len(row_indices)
-            self._indices = np.array(indices, dtype=np.int32)
-            self._indptr = indptr
-            self._data = np.zeros(len(self._indices), dtype=np.float64)
-            self._csr_structure = True
-        
         # Assemble data array
         # 组装数据部分（按行顺序）
-        for i in range(NumberOfElements):
+        for i in range(self.NumberOfElements):
             start = self._indptr[i]
-            self._data[start] = self.ac[i]
-            self._data[start + 1:self._indptr[i+1]] = self.anb[i]
-
+            self.csrdata[start] = self.ac[i]
+            self.csrdata[start + 1:self._indptr[i+1]] = self.anb[i]
 
         if not hasattr(self, '_A_sparse'):
             from scipy.sparse import csr_matrix
-            self._A_sparse = csr_matrix((self._data, self._indices, self._indptr), shape=(NumberOfElements, NumberOfElements))
+            self._A_sparse = csr_matrix((self.csrdata, self._indices, self._indptr), shape=(self.NumberOfElements, self.NumberOfElements))
         else:
             # Update existing data array
-            self._A_sparse.data = self._data
-        self._A_sparse_needs_update = False
+            self._A_sparse.data = self.csrdata
 
 
 
-    def assemble_sparse_matrix_lil(self):
-        NumberOfElements = self.NumberOfElements
-        from scipy.sparse import lil_matrix
-        
-        A = lil_matrix((NumberOfElements, NumberOfElements), dtype=np.float64)
-        for i in range(NumberOfElements):
-            A[i, i] = self.ac[i]
-            for j, neighbor in enumerate(self.theCConn[i]):
-                A[i, neighbor] = self.anb[i][j]
-        self._A_sparse = A.tocsr()
-        self._A_sparse_needs_update = False
-        return self._A_sparse
+    def _assemble_ldu_to_csr(self):
+        """将LDU格式转换为CSR格式（利用现有CSR结构）"""
+        # 直接使用现有的CSR结构
+        # self.csrdata.fill(0.0)  # 清零数据
+        # Step 1: 填充对角元素（每行第一个元素就是对角）
+        # diag_positions = self._indptr[:-1]  # 每行起始位置就是对角位置
+        self.csrdata[self._indptr[:-1]] = self.Diag
+        # Step 2: 利用csrfaceToRowIndex填充非对角元素
+        # numberOfInteriorFaces = len(self.Upper)
+        # face_positions = self._csrfaceToRowIndex
+        # csrfaceToRowIndex[f, 0]: neighbor行中owner列的位置
+        # csrfaceToRowIndex[f, 1]: owner行中neighbor列的位置
+        # neighbor_to_owner_positions = self._csrfaceToRowIndex[:, 0]  # lower值的位置
+        # owner_to_neighbor_positions = self._csrfaceToRowIndex[:, 1]  # upper值的位置
+        # 填充upper和lower值
+        self.csrdata[self._csrfaceToRowIndex[:, 0]] = self.Lower
+        self.csrdata[self._csrfaceToRowIndex[:, 1]] = self.Upper
 
+        # Step 3: 创建或更新scipy CSR矩阵
+        if not hasattr(self, '_A_sparse'):
+            from scipy.sparse import csr_matrix
+            self._A_sparse = csr_matrix(
+                (self.csrdata, self._indices, self._indptr),
+                shape=(self.NumberOfElements, self.NumberOfElements)
+            )
+        else:
+            # 更新现有矩阵的数据
+            self._A_sparse.data = self.csrdata
 
     def cfdComputeResidualsArray(self):
-        Adphi=self.theCoefficients_Matrix_multiplication(self.dphi)
-        rc= self.bc-Adphi
+        """计算残差数组
+        
+        Args:
+            force_sparse: 强制使用稀疏矩阵乘法
+        """
+        Adphi = self.theCoefficients_Matrix_multiplication(self.dphi)
+        rc = self.bc - Adphi
         return rc
     
-    def theCoefficients_Matrix_multiplication(self,d):
-        # if hasattr(self, '_A_sparse') and not self._A_sparse_needs_update:
-        #     Ad = self._A_sparse @ d
-        # else:
-        #     Ad = np.zeros_like(d)
-        #     for iElement in range(self.NumberOfElements):
-        #             Ad[iElement] = self.ac[iElement] * d[iElement]
-        #             for iLocalNeighbour,neighbor in enumerate(self.theCConn[iElement]):
-        #                 Ad[iElement] += self.anb[iElement][iLocalNeighbour] * d[neighbor]
-        return self.theCoefficients_sparse_multiplication(d)
+    def theCoefficients_Matrix_multiplication(self, x):
+        """矩阵向量乘法（格式无关）
+        Args:
+            x: 输入向量
+        """
+        # 如果设置了_sparse_always=True，使用稀疏矩阵
+        # 1. 核心优化策略
+        # - 设置 sparse_always = True 让所有方程都使用scipy.sparse矩阵乘法
+        # - 保持原有ACNB格式用于组装，转换为CSR格式进行计算
+        # - 利用scipy库的高度优化C/Fortran实现
+        # 2. 关键代码改动
+        # - Region.py: self.sparse_always = True
+        # - Coefficients.py:: 自动检测并初始化CSR结构，统一使用 self._A_sparse @ x 进行矩阵乘法
+        # 3. 性能提升机制
+        # - scipy.sparse优势: 使用高度优化的C/Fortran代码替代Python循环
+        # - 向量化计算: @ 操作符调用BLAS库进行优化计算
+        # - 内存效率: CSR格式的紧凑存储和高效访问模式
+        # 4. 架构优势
+        # - 向后兼容: 保留了所有原有计算方法
+        # - 灵活控制: 通过sparse_always参数可选择优化策略
+        # - 代码简洁: 统一的矩阵乘法接口
+        if self._sparse_always:
+            if self._A_sparse_needs_update or not hasattr(self, '_A_sparse'):
+                self.data_sparse_matrix_update()
+            return self._A_sparse @ x
+        
+        # 否则使用原有的格式特定乘法
+        if self.MatrixFormat == 'ldu':
+            return self._ldu_multiply(x)
+        elif self.MatrixFormat == 'acnb':
+            return self._acnb_multiply(x)
+        elif self.MatrixFormat == 'csr':
+            return self._csr_multiply(x)
+        elif self.MatrixFormat == 'coo':
+            return self._coo_multiply(x)
+        else:
+            raise ValueError(f"Unsupported MatrixFormat: {self.MatrixFormat}")
 
-    def theCoefficients_sparse_multiplication(self,d):
-        if not hasattr(self, '_A_sparse') or self._A_sparse_needs_update:
-            self.assemble_sparse_matrix()
-        return self._A_sparse @ d
-    
-    def assemble_sparse_matrix(self,method='csr'):
-        if not hasattr(self, '_A_sparse') or self._A_sparse_needs_update:
-            if method=='csr':
-                self.assemble_sparse_matrix_csr()
-            elif method=='coo':
-                self.assemble_sparse_matrix_coo()
-            else:
-                raise ValueError(f"Unknown method {method}")
-        return self._A_sparse
-    
-    
+    def _ldu_multiply(self, x):
+        """LDU格式的高效矩阵乘法"""
+        y = self.ac * x
+        np.add.at(y, self._lowerAddr, self.Upper * x[self._upperAddr])
+        np.add.at(y, self._upperAddr, self.Lower * x[self._lowerAddr])
+        return y
 
+    def _acnb_multiply(self, x):
+        """ACNB格式的高效矩阵乘法"""
+        y = self.ac * x
+        for i in range(self.NumberOfElements):
+            y[i] += np.sum(self.anb[i] * x[self._theCConn[i]])
+        return y
+
+    def _csr_multiply(self, x):
+        """CSR格式的高效矩阵乘法"""
+        y = np.zeros(self.NumberOfElements, dtype=np.float64)
+        for i in range(self.NumberOfElements):
+            start = self._indptr[i]
+            end = self._indptr[i + 1]
+            y[i] = np.dot(self.csrdata[start:end], x[self._indices[start:end]])
+        return y
     
+    def _coo_multiply(self, x):
+        """COO格式的高效矩阵乘法"""
+        y = np.zeros(self.NumberOfElements, dtype=np.float64)
+        np.add.at(y, self._row, self.coodata * x[self._col])
+        return y
 
     def verify_matrix_properties(self):
         from scipy.sparse.linalg import norm

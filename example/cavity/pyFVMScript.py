@@ -1,5 +1,6 @@
 import os
 import sys
+sys.dont_write_bytecode = True
 import time as time
 # 获取当前脚本文件所在的目录
 current_file_path = os.path.abspath(__file__)

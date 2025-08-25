@@ -66,6 +66,9 @@ class Polymesh():
         """
         
         # self.Region=Region
+        #预定义矩阵组装结构 acnb, ldu, coo, csr
+        self.MatrixFormat=Region.MatrixFormat  #'acnb','ldu','coo','csr'
+        self._sparse_always=Region.sparse_always #是否总是使用稀疏矩阵存储
         
         ## Path to points files
         self.pointsFile = r"%s/constant/polyMesh/points" % Region.caseDirectoryPath
@@ -678,7 +681,8 @@ class Polymesh():
         self.elementNodes = np.empty(self.numberOfElements, dtype=object)
         for i in range(self.numberOfElements):
             self.elementNodes[i] = []
-        
+            self.elementNeighbours[i].sort()#对邻居单元格排序
+
         for iElement in range(self.numberOfElements):
             for faceIndex in self.elementFaces[iElement]:
                 self.elementNodes[iElement].extend(self.faceNodes[faceIndex])
@@ -717,30 +721,6 @@ class Polymesh():
 
             这种操作在处理网格单元格节点时非常有用，特别是当你需要确保每个单元格的节点列表中不包含重复节点时。
             '''
-        ## Upper coefficient indices (owners)
-        # # self.upperAnbCoeffIndex=[[] for i in range(0,self.numberOfInteriorFaces)]
-        # self.upperAnbCoeffIndex = np.empty(self.numberOfInteriorFaces, dtype=object)
-        # ## Lower coefficient indices (owners)
-        # # self.lowerAnbCoeffIndex=[[] for i in range(0,self.numberOfInteriorFaces)]
-        # self.lowerAnbCoeffIndex = np.empty(self.numberOfInteriorFaces, dtype=object)
-        # for i in range(self.numberOfInteriorFaces):
-        #     self.upperAnbCoeffIndex[i] = []
-        #     self.lowerAnbCoeffIndex[i] = []
-
-        # for iElement in range(self.numberOfElements):
-        #     ## Element number from 1 to numberOfElements + 1
-        #     iNb=0
-        #     for faceIndex in self.elementFaces[iElement]:
-        #         #skip if it is a boundary face
-        #         if faceIndex > self.numberOfInteriorFaces-1:
-        #             continue
-        #         own = self.owners[faceIndex]
-        #         nei = self.neighbours[faceIndex]
-        #         if iElement == own:
-        #             self.upperAnbCoeffIndex[faceIndex] = iNb
-        #         elif iElement == nei:
-        #             self.lowerAnbCoeffIndex[faceIndex] = iNb
-        #         iNb += 1
         """
         初始化并填充 upperAnbCoeffIndex 和 lowerAnbCoeffIndex 数组。
 
@@ -773,12 +753,30 @@ class Polymesh():
         - 该过程确保在组装全球矩阵时，可以通过 upperAnbCoeffIndex 和 lowerAnbCoeffIndex 快速定位每个内部面对应的 anb 系数在所有者和邻居单元的 anb 数组中的位置。
         - 这对于非结构化网格尤为重要，因为每个单元的邻居数量可能不同，anb 数组的长度也不同。
         """
-        self.upperAnbCoeffIndex = np.zeros(self.numberOfInteriorFaces, dtype=np.int32)#《The FVM in CFD》 P201
-        self.lowerAnbCoeffIndex = np.zeros(self.numberOfInteriorFaces, dtype=np.int32)
+
+        if self.MatrixFormat == 'acnb':
+            self._init_acnb_format()
+            if self._sparse_always:
+                self._init_csr_format()
+        elif self.MatrixFormat == 'ldu':#openfoam 默认用ldu存储
+            self._init_ldu_format()
+            if self._sparse_always:
+                self._init_csr_format()
+        elif self.MatrixFormat == 'csr':
+            self._init_csr_format()
+        elif self.MatrixFormat == 'coo':
+            self._init_coo_format()
+        else:
+            raise ValueError(f"Unsupported MatrixFormat: {self.MatrixFormat}")
+
+
+    #《The FVM in CFD》 P201
+    def _init_acnb_format(self):
+        self.upperAnbCoeffIndex = np.zeros(self.numberOfInteriorFaces, dtype=np.int32)#计算内部面在邻居单元neighbour上的 anb 系数索引
+        self.lowerAnbCoeffIndex = np.zeros(self.numberOfInteriorFaces, dtype=np.int32)#计算内部面在所有者单元owner上的 anb 系数索引
         for iFace in range(self.numberOfInteriorFaces):
             own = self.owners[iFace]
             nei = self.neighbours[iFace]
-            
             # For owner cell
             own_neighbours = self.elementNeighbours[own]
             nei_in_own_anb_index = own_neighbours.index(nei)
@@ -788,6 +786,92 @@ class Polymesh():
             nei_neighbours = self.elementNeighbours[nei]
             own_in_nei_anb_index = nei_neighbours.index(own)
             self.lowerAnbCoeffIndex[iFace] = own_in_nei_anb_index
+
+    def _init_ldu_format(self):
+        self.lduUpperAddr = self.neighbours[:self.numberOfInteriorFaces]#计算内部面在邻居单元neighbour上矩阵上的行数索引
+        self.lduLowerAddr = self.owners[:self.numberOfInteriorFaces]#计算内部面在所有者单元owner上的矩阵上的行数索引
+
+        facesAsOwner = [[] for _ in range(self.numberOfElements)]
+        for f in range(self.numberOfInteriorFaces):
+            facesAsOwner[self.owners[f]].append(f)
+
+        # 预计算facesAsNeighbor - 每个单元作为neighbor的面列表
+        facesAsNeighbour = [[] for _ in range(self.numberOfElements)]
+        for f in range(self.numberOfInteriorFaces):
+            facesAsNeighbour[self.neighbours[f]].append(f)
+
+        # 存到 theCoefficients 或 Region.mesh，后续直接用
+        self.facesAsOwner = facesAsOwner
+        self.facesAsNeighbour = facesAsNeighbour
+
+
+    def _init_csr_format(self):
+        # 计算非零元素总数
+        # nnz=sum(len(neigh) for neigh in self.elementNeighbours)
+        # nnz+=self.numberOfElements  # 加上对角元素
+        nnz=self.numberOfInteriorFaces*2+self.numberOfElements #csr格式非零元素个数
+        # 初始化CSR数组
+        self.csrindices = np.empty(nnz, dtype=np.int32)
+        self.csrindptr = np.zeros(self.numberOfElements+1, dtype=np.int32)
+
+        # 构建CSR结构
+        for row in range(self.numberOfElements):
+            self.csrindptr[row + 1]=self.csrindptr[row]+len(self.elementNeighbours[row])+1
+            self.csrindices[self.csrindptr[row]] = row
+            self.csrindices[self.csrindptr[row]+1:self.csrindptr[row + 1]] = self.elementNeighbours[row]
+
+        #建立面iFace到对应owner行和neighbour行csrindices的位置index映射
+        self.csrfaceToRowIndex = np.empty((self.numberOfInteriorFaces, 2), dtype=np.int32)
+        for f in range(self.numberOfInteriorFaces):
+            owner = self.owners[f]
+            neighbor = self.neighbours[f]
+
+            # 获取两行的列索引
+            ColIndOwner=self.csrindices[self.csrindptr[owner]:self.csrindptr[owner+1]]
+            ColIndNeighbor=self.csrindices[self.csrindptr[neighbor]:self.csrindptr[neighbor+1]]
+            self.csrfaceToRowIndex[f, 0] = self.csrindptr[neighbor]+np.where(owner==ColIndNeighbor)[0][0]
+            self.csrfaceToRowIndex[f, 1] = self.csrindptr[owner]+np.where(neighbor==ColIndOwner)[0][0]
+
+    def _init_coo_format(self):
+        # 计算非零元素总数: 对角线元素 + 每个内部面贡献2个非对角元素
+        nnz = self.numberOfElements + self.numberOfInteriorFaces * 2
+
+        # 初始化COO数组
+        self.cooRow = np.empty(nnz, dtype=np.int32)
+        self.cooCol = np.empty(nnz, dtype=np.int32)
+
+        pos = 0
+        
+        # 第一步：添加所有对角元素
+        diag_positions = np.arange(self.numberOfElements, dtype=np.int32)
+        for i in range(self.numberOfElements):
+            self.cooRow[pos] = i
+            self.cooCol[pos] = i
+            # diag_positions[i] = pos
+            pos += 1
+
+        # 第二步：基于面的连接性添加非对角元素，确保对称性
+        face_to_row_mapping = np.empty((self.numberOfInteriorFaces, 2), dtype=np.int32)
+        
+        for f in range(self.numberOfInteriorFaces):
+            owner = self.owners[f]
+            neighbor = self.neighbours[f]
+
+            # 添加 (owner, neighbor) 条目
+            self.cooRow[pos] = owner
+            self.cooCol[pos] = neighbor
+            face_to_row_mapping[f, 1] = pos  # owner->neighbor位置 (Upper)
+            pos += 1
+
+            # 添加 (neighbor, owner) 条目，确保对称性
+            self.cooRow[pos] = neighbor
+            self.cooCol[pos] = owner
+            face_to_row_mapping[f, 0] = pos  # neighbor->owner位置 (Lower)
+            pos += 1
+
+        # 存储结果
+        self.coodiagPositions = diag_positions
+        self.coofaceToRowIndex = face_to_row_mapping
 
 
 

@@ -94,6 +94,7 @@ class Assemble:
             iComponent=args[0]
             # Apply under-relaxation
             self.cfdAssembleImplicitRelaxation(Region,iComponent)
+
             # Store DU and DUT
             if 'p' in Region.model.equations:
                 self.cfdAssembleDCoefficients(Region,iComponent)
@@ -109,7 +110,18 @@ class Assemble:
         """
         theNumberOfElements=Region.mesh.numberOfElements
         # if strcmp(cfdGetAlgorithm,'SIMPLE')
-        Region.fluid['DU'].phi[:theNumberOfElements,iComponent] = Region.mesh.elementVolumes/Q_(Region.coefficients.ac,Region.fluxes.FluxC[self.theEquationName].dimension)
+        if Region.MatrixFormat == 'acnb':
+            Diag=Region.coefficients.ac
+        elif Region.MatrixFormat == 'ldu':
+            Diag=Region.coefficients.Diag
+        elif Region.MatrixFormat == 'csr':
+            Diag=Region.coefficients.csrdata[Region.coefficients._indptr[:-1]]
+        elif Region.MatrixFormat == 'coo':
+            Diag=Region.coefficients.coodata[Region.coefficients._coodiagPositions]
+        else:
+            raise ValueError(f"Unsupported MatrixFormat: {Region.MatrixFormat}")
+
+        Region.fluid['DU'].phi[:theNumberOfElements,iComponent] = Region.mesh.elementVolumes/Q_(Diag,Region.fluxes.FluxC[self.theEquationName].dimension)
         # else
         # Region.fluid['DUT'].phi[:theNumberOfElements,iComponent]= Region.coefficients.ac_old/Region.coefficients.ac
         #Update at cfdBoundary patches
@@ -122,7 +134,17 @@ class Assemble:
         These are the ac and bc coefficients in the linear system of equations
         """
         #《The FVM in CFD》P. 545
-        Region.coefficients.ac      += Region.fluxes.FluxC[self.theEquationName].value
+        if Region.MatrixFormat == 'acnb':
+            Region.coefficients.ac      += Region.fluxes.FluxC[self.theEquationName].value
+        elif Region.MatrixFormat == 'ldu':
+            Region.coefficients.Diag    += Region.fluxes.FluxC[self.theEquationName].value
+        elif Region.MatrixFormat == 'csr':
+            diag_positions = Region.coefficients._indptr[:-1]
+            Region.coefficients.csrdata[diag_positions] += Region.fluxes.FluxC[self.theEquationName].value
+        elif Region.MatrixFormat == 'coo':
+            diag_positions = Region.coefficients._coodiagPositions
+            Region.coefficients.coodata[diag_positions] += Region.fluxes.FluxC[self.theEquationName].value
+
         # Region.coefficients.ac_old  += Region.fluxes.FluxC_old[self.theEquationName].value
         Region.coefficients.bc      -= Region.fluxes.FluxT[self.theEquationName].value
 
@@ -134,8 +156,6 @@ class Assemble:
         # 获取所有内部面数据
         owners = Region.mesh.owners[:numberOfInteriorFaces]
         neighbours = Region.mesh.neighbours[:numberOfInteriorFaces]
-        own_anb_index = Region.mesh.upperAnbCoeffIndex[:numberOfInteriorFaces]
-        nei_anb_index = Region.mesh.lowerAnbCoeffIndex[:numberOfInteriorFaces]
 
         # 获取Flux数据
         FluxCf = Region.fluxes.FluxCf[self.theEquationName].value[:numberOfInteriorFaces]
@@ -143,26 +163,79 @@ class Assemble:
         FluxTf = Region.fluxes.FluxTf[self.theEquationName].value[:numberOfInteriorFaces]
 
         # Vectorized updates for interior faces
-        np.add.at(Region.coefficients.ac, owners, FluxCf)
-        # np.add.at(Region.coefficients.anb, (owners, own_anb_index), FluxFf)
-        for i in range(numberOfInteriorFaces):
-            Region.coefficients.anb[owners[i]][own_anb_index[i]] += FluxFf[i]
+        # 通用的源项更新（所有格式都需要）
         np.subtract.at(Region.coefficients.bc, owners, FluxTf)
-
-        np.subtract.at(Region.coefficients.ac, neighbours, FluxFf)
-        # np.subtract.at(Region.coefficients.anb, (neighbours, nei_anb_index), FluxCf)
-        for i in range(numberOfInteriorFaces):
-            Region.coefficients.anb[neighbours[i]][nei_anb_index[i]] -= FluxCf[i]
         np.add.at(Region.coefficients.bc, neighbours, FluxTf)
 
-
-        #   Assemble fluxes of boundary faces
+        # Assemble fluxes of boundary faces
+        # 边界面处理（所有格式通用）
         boundary_owners = Region.mesh.owners[numberOfInteriorFaces:]
         FluxCf_b = Region.fluxes.FluxCf[self.theEquationName].value[numberOfInteriorFaces:]
         FluxTf_b = Region.fluxes.FluxTf[self.theEquationName].value[numberOfInteriorFaces:]
         # Vectorized updates for boundary faces
-        np.add.at(Region.coefficients.ac, boundary_owners, FluxCf_b)
         np.subtract.at(Region.coefficients.bc, boundary_owners, FluxTf_b)
+
+
+        
+        #根据矩阵格式处理矩阵元素
+        if Region.MatrixFormat == 'acnb':
+            #对角线元素更新
+            np.add.at(Region.coefficients.ac, owners, FluxCf)
+            np.subtract.at(Region.coefficients.ac, neighbours, FluxFf)
+            np.add.at(Region.coefficients.ac, boundary_owners, FluxCf_b)
+            #非对角线元素组装
+            own_anb_index = Region.mesh.upperAnbCoeffIndex[:numberOfInteriorFaces]
+            nei_anb_index = Region.mesh.lowerAnbCoeffIndex[:numberOfInteriorFaces]
+            for i in range(numberOfInteriorFaces):
+                Region.coefficients.anb[owners[i]][own_anb_index[i]] += FluxFf[i]
+                Region.coefficients.anb[neighbours[i]][nei_anb_index[i]] -= FluxCf[i]
+
+        elif Region.MatrixFormat == 'ldu':
+            """LDU格式的完全向量化组装"""
+            # 对角线元素更新
+            np.add.at(Region.coefficients.Diag, owners, FluxCf)
+            np.subtract.at(Region.coefficients.Diag, neighbours, FluxFf)
+            np.add.at(Region.coefficients.Diag, boundary_owners, FluxCf_b)
+            #非对角线元素组装
+            Region.coefficients.Upper[:numberOfInteriorFaces] += FluxFf
+            Region.coefficients.Lower[:numberOfInteriorFaces] -= FluxCf
+
+        elif Region.MatrixFormat == 'csr':
+            """CSR格式的向量化组装"""
+            # 对角元素位置是每行的起始位置
+            diag_positions = Region.coefficients._indptr[:-1]
+            # 修复：正确的对角元素更新 - 使用正确的索引
+            np.add.at(Region.coefficients.csrdata, diag_positions[owners], FluxCf)
+            np.subtract.at(Region.coefficients.csrdata, diag_positions[neighbours], FluxFf)
+            np.add.at(Region.coefficients.csrdata, diag_positions[boundary_owners], FluxCf_b)
+
+            #非对角线元素组装
+            face_positions = Region.coefficients._csrfaceToRowIndex[:numberOfInteriorFaces]
+            # 向量化更新CSR数据
+            # neighbor_to_owner_pos = face_positions[:, 0]  # Lower值位置
+            # owner_to_neighbor_pos = face_positions[:, 1]  # Upper值位置
+            Region.coefficients.csrdata[face_positions[:, 1]] += FluxFf  # Upper
+            Region.coefficients.csrdata[face_positions[:, 0]] -= FluxCf  # Lower
+            
+            
+
+        elif Region.MatrixFormat == 'coo':
+            """COO格式的向量化组装"""
+            # 对角线元素更新
+            diag_positions = Region.coefficients._coodiagPositions
+            # 修复：正确的对角元素更新 - 使用正确的索引
+            np.add.at(Region.coefficients.coodata, diag_positions[owners], FluxCf)
+            np.subtract.at(Region.coefficients.coodata, diag_positions[neighbours], FluxFf)
+            np.add.at(Region.coefficients.coodata, diag_positions[boundary_owners], FluxCf_b)
+            #非对角线元素组装
+            face_positions = Region.coefficients._coofaceToRowIndex[:numberOfInteriorFaces]
+            # 向量化更新COO数据
+            # neighbor_to_owner_pos = face_positions[:, 0]  # Lower值位置
+            # owner_to_neighbor_pos = face_positions[:, 1]  # Upper值位置
+            Region.coefficients.coodata[face_positions[:, 1]] += FluxFf  # Upper
+            Region.coefficients.coodata[face_positions[:, 0]] -= FluxCf  # Lower
+
+
 
     def cfdAssembleImplicitRelaxation(self,Region,*args):
         """
@@ -176,7 +249,20 @@ class Assemble:
             # else:
             #     print(f"Key '{self.theEquationName}' not found. Using default value 0.7.")
             #     urf = 0.7  # 默认值
-            Region.coefficients.ac /= urf
+            
+            
+            # 关键修复：对于CSR格式，同步更新对角元素
+            if Region.MatrixFormat == 'acnb':
+                Region.coefficients.ac /= urf
+            elif Region.MatrixFormat == 'ldu':
+                Region.coefficients.Diag /= urf
+            elif Region.MatrixFormat == 'csr':
+                diag_positions = Region.coefficients._indptr[:-1]
+                Region.coefficients.csrdata[diag_positions] /= urf
+            elif Region.MatrixFormat == 'coo':
+                diag_positions = Region.coefficients._coodiagPositions
+                Region.coefficients.coodata[diag_positions] /= urf
+
         except KeyError as e:
             io.cfdError(f"Key '{self.theEquationName}' not found in the dictionary.")
 
@@ -264,6 +350,9 @@ class Assemble:
                 # print('It is Steady State')
                 io.cfdError('FalseTransient term not implemented for compressible flow')
 
+            elif iTerm == 'Convection':
+                io.cfdError('Convection term not implemented for compressible flow')
+
             elif iTerm == 'massDivergenceTerm':
                 print('Inside massDivergence Term')
                 self.cfdZeroFaceFLUXCoefficients(Region)
@@ -276,6 +365,7 @@ class Assemble:
 
             else:
                 io.cfdError(iTerm + ' term is not defined')
+
 
     def cfdPostAssembleContinuityEquation(self,Region,*args):
         # self.cfdAssembleDiagDominance(Region)

@@ -21,10 +21,19 @@ class Region():
     All information related to the mesh's topology (i.e., distances of cell centers to wall, face surface areas, face normals and cell volumes) is available in the Region class. 
     """
     def __init__(self,casePath):
+        #预定义矩阵组装结构 acnb, ldu, coo, csr
+        #本程序依据cfd原理原创的是'acnb'格式，openfoam使用的是'ldu'格式，可选：'acnb','ldu','coo','csr'。
+        self.MatrixFormat = 'acnb' 
+        # 控制稀疏矩阵使用策略                                     
+        # False: 只有压力泊松方程使用稀疏矩阵（原有行为）             
+        # True: 所有方程都使用稀疏矩阵（新的优化选项）        
+        self.sparse_always = True
         self.cfdIsCompressible=cfg.cfdIsCompressible
         self.pp_nonlinear_corrected=cfg.pp_nonlinear_corrected
         self.caseDirectoryPath = casePath
         self.StartSession()
+
+    def readCase(self):
         self.ReadOpenFoamFiles()
         self.model=model.Model(self)
 
@@ -32,6 +41,7 @@ class Region():
         """
         Runs the case by performing the necessary computations and iterations for each equation in the model.
         """
+        self.readCase()
         io.cfdPrintHeader()
         ## Instance of Coefficients class which contains information related to the connectivity of the mesh.定义ac，anb
         self.coefficients=coefficients.Coefficients(self)

@@ -34,8 +34,17 @@ class Equation():
         scale = Region.fluid[theEquationName].scale
 
         # % Get coefficients
-        ac = Region.coefficients.ac
         bc = Region.coefficients.bc
+        if Region.MatrixFormat == 'acnb':
+            ac = Region.coefficients.ac
+        elif Region.MatrixFormat == 'ldu':
+            ac = Region.coefficients.Diag
+        elif Region.MatrixFormat == 'csr':
+            ac = Region.coefficients.csrdata[Region.coefficients._indptr[:-1]]
+        elif Region.MatrixFormat == 'coo':
+            ac = Region.coefficients.coodata[Region.coefficients._coodiagPositions]
+        else:
+            raise ValueError(f"Unsupported MatrixFormat: {Region.MatrixFormat}")
 
         if theEquationName=='p':
             # % Fore pressure correction equation, the divergence of the mass flow
