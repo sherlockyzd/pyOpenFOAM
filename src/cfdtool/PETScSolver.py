@@ -15,6 +15,18 @@ except ImportError:
     PETSC_AVAILABLE = False
     print("警告: PETSc不可用，将使用SciPy后备方案")
 
+#TODO: 要启用GPU并行，需要：
+#   配置选项方式（最简单）：
+#   # 运行时通过环境变量
+#   export PETSC_OPTIONS="-vec_type cuda -mat_type aijcusparse"
+#   python pyFVMScript.py
+
+#   代码修改方式：
+#   # 在_create_matrix_structure()中改为GPU矩阵
+#   self.A_petsc = PETSc.Mat().createAIJCUSPARSE(...)  # GPU稀疏矩阵
+#   # 在create_vectors()中改为GPU向量
+#   self.b_petsc = PETSc.Vec().createCUDA(...)         # GPU向量
+
 
 # PETSc求解器对象池 - 避免重复创建销毁
 _petsc_solver_pool = {}
