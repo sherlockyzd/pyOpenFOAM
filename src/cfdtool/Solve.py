@@ -3,18 +3,19 @@ import cfdtool.IO as io
 import cfdtool.Math as mth
 import numpy as np
 
+# 尝试导入PETSc求解器
+from cfdtool.PETScSolver import cfdSolvePETSc,PETSC_AVAILABLE
+
+
 def cfdSolveEquation(Region,theEquationName, iComponent):
     # foamDict = cfdGetFoamDict;
     solver    = Region.dictionaries.fvSolution['solvers'][theEquationName]['solver']
     maxIter   = Region.dictionaries.fvSolution['solvers'][theEquationName]['maxIter']
     tolerance = Region.dictionaries.fvSolution['solvers'][theEquationName]['tolerance']
     relTol    = Region.dictionaries.fvSolution['solvers'][theEquationName]['relTol']
-    if solver in ['GAMG','smoothSolver']:
-        pass
-    elif solver == 'PCG':
+
+    if solver in ['PCG','PETSc']:
         Region_csr_format(Region)
-    else:
-        io.cfdError(solver+' solver has not beeen defined!!!')
 
     if solver=='GAMG':
         # Get GAMG settings
@@ -29,9 +30,30 @@ def cfdSolveEquation(Region,theEquationName, iComponent):
     elif solver == 'PCG':
         preconditioner = Region.dictionaries.fvSolution['solvers'][theEquationName]['preconditioner']
         [initRes, finalRes] = cfdSolvePCG(Region.coefficients, maxIter, tolerance, relTol, preconditioner)
+    elif solver == 'PETSc':
+        if PETSC_AVAILABLE:
+            petsc_solver_type = Region.dictionaries.fvSolution['solvers'][theEquationName].get('petsc_solver', 'gmres')
+            petsc_preconditioner = Region.dictionaries.fvSolution['solvers'][theEquationName].get('preconditioner', 'gamg')
+            
+            [initRes, finalRes] = cfdSolvePETSc(
+                Region.coefficients, 
+                maxIter=maxIter,
+                tolerance=tolerance, 
+                relTol=relTol,
+                solver_type=petsc_solver_type,
+                preconditioner=petsc_preconditioner
+            )
+            
+            print(f"PETSc求解完成: {petsc_solver_type} + {petsc_preconditioner}")
+        else:
+            io.cfdError("PETSc不可用，回退到PCG求解器")
+            # preconditioner = Region.dictionaries.fvSolution['solvers'][theEquationName].get('preconditioner', 'ILU') 
+            # [initRes, finalRes] = cfdSolvePCG(Region.coefficients, maxIter, tolerance, relTol, preconditioner)
     else:
         # print('  s not defined', solver)
         io.cfdError(solver+' solver has not beeen defined!!!')
+
+
     io.cfdPrintResidualsHeader(theEquationName,tolerance,maxIter,initRes,finalRes)
     #    Store linear solver residuals
     if iComponent != -1:
@@ -40,13 +62,17 @@ def cfdSolveEquation(Region,theEquationName, iComponent):
     else:
         Region.assembledPhi[theEquationName].theEquation.initResidual=initRes
         Region.assembledPhi[theEquationName].theEquation.finalResidual=finalRes
-
-
+    
 def Region_csr_format(Region):
-    if Region.coefficients._A_sparse_needs_update:
-        Region.mesh._init_csr_format()
-        Region.coefficients._init_csr_format(Region)
-
+    if Region.coefficients._sparse_matrix_structure_needs_update:
+        if Region.MatrixFormat == 'coo':
+            Region.mesh._init_coo_format()
+            Region.coefficients._init_coo_format(Region)
+        elif Region.MatrixFormat in ['csr','ldu','acnb']:
+            Region.mesh._init_csr_format()
+            Region.coefficients._init_csr_format(Region)
+        else:
+            io.cfdError("不支持的矩阵格式")
 
 '''
 -----------------------------------------------------------

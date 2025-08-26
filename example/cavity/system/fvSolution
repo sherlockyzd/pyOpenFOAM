@@ -19,34 +19,68 @@ solvers
 {
     p
     {
-        solver          PCG;
-        preconditioner  DIC;
-        tolerance       1e-06;
-        relTol          0.05;
-    }
-
-    pFinal
-    {
-        $p;
-        relTol          0;
+        solver          PETSc;          // 使用PETSc求解器
+        petsc_solver    gmres;          // GMRES Krylov方法 (gmres, cg, bicgstab)  
+        preconditioner  gamg;           // 代数多重网格预处理器 (gamg, ilu, jacobi)
+        tolerance       1e-6;
+        relTol          0.01;
+        maxIter         1000;
     }
 
     U
     {
-        solver          smoothSolver;
-        smoother        DILU;
-        tolerance       1e-05;
-        relTol          0;
+        solver          PETSc;
+        petsc_solver    bicgstab;       // BiCGSTAB对非对称矩阵效果好
+        preconditioner  ilu;            // ILU预处理器
+        tolerance       1e-6;
+        relTol          0.1;
+        maxIter         1000;
     }
 
     T
     {
-        solver          smoothSolver;
-        smoother        symGaussSeidel;
-        tolerance       1e-06;
-        relTol          0;
+        solver          PETSc;
+        petsc_solver    bicgstab;       // BiCGSTAB对非对称矩阵效果好
+        preconditioner  ilu;            // ILU预处理器
+        tolerance       1e-6;
+        relTol          0.1;
+        maxIter         1000;
     }
 }
+
+// 传统求解器配置（备选）
+// solvers_backup
+// {
+//     p
+//     {
+//         solver          PCG;
+//         preconditioner  DIC;
+//         tolerance       1e-06;
+//         relTol          0.05;
+//     }
+
+//     pFinal
+//     {
+//         $p;
+//         relTol          0;
+//     }
+
+//     U
+//     {
+//         solver          smoothSolver;
+//         smoother        DILU;
+//         tolerance       1e-05;
+//         relTol          0;
+//     }
+
+//     T
+//     {
+//         solver          smoothSolver;
+//         smoother        symGaussSeidel;
+//         tolerance       1e-06;
+//         relTol          0;
+//     }
+// }
 
 PISO
 {

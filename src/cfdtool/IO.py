@@ -119,29 +119,28 @@ def cfdSkipEmptyLines(tline):
     return tline
 
 def cfdSkipMacroComments(tline):
-    """
-    这段Python代码定义了一个名为`cfdSkipMacroComments`的函数，其目的是检查并跳过文件中的宏定义注释行。下面是对这段代码的详细解释：
-    1. `def cfdSkipMacroComments(tline):`：定义了一个函数`cfdSkipMacroComments`，接收一个参数`tline`，这个参数是一个字符串，代表文件中的一行文本。
-    2. `trimmedTline = tline.strip()`：使用`strip()`方法移除字符串`tline`两端的空白字符，并将结果保存在变量`trimmedTline`中。
-    3. `if "/*" in trimmedTline:`：检查经过`strip()`处理后的字符串`trimmedTline`中是否包含`"/*"`。这通常是C语言或类似语言中宏定义的开始标记。如果是，则将`tline`的值设置为`False`，表示这行是宏定义的开始，应该被跳过。
-    4. `elif "|" in trimmedTline:`：检查`trimmedTline`中是否包含`"|"`。这个条件的具体意义不太明确，因为`"|"`通常不是宏定义的一部分。可能是特定上下文中的特定要求。
-    5. `elif "\*" in trimmedTline:`：检查`trimmedTline`中是否包含`"\*"`（即转义的星号字符）。这个条件同样不太明确，因为通常星号`"*"`用于表示乘法操作或注释的结束，而不是注释本身。
-    6. `elif "*" in trimmedTline:`：检查`trimmedTline`中是否包含未转义的星号`"*"`。这可能是为了跳过包含星号的注释行，但通常星号注释应该是以`"/*"`开始和`"*/"`结束的块注释。
-    7. `else:`：如果以上条件都不满足，即`trimmedTline`既不是以`"/*"`开始的宏定义，也不包含`"|"`或星号`"*"`，则执行`else`块中的代码。
-    8. `tline = tline`：在`else`块中，将`tline`的值重新赋给它自己。这一步实际上是多余的，因为`tline`的值在进入`else`块之前并没有改变。
-    9. `return tline`：函数返回`tline`的值。如果`tline`是宏定义注释行或包含某些特定字符，返回`False`；否则返回原始的`tline`字符串。
-    总结来说，`cfdSkipMacroComments`函数的目的是检查传入的字符串是否是宏定义注释行或包含某些特定字符，如果是，则返回`False`，表示这行应该被跳过；如果不是，则返回原始字符串，表示这行应该被进一步处理。这个函数通常与文件读取循环结合使用，以过滤掉文件中的宏定义注释行和其他特定行。
-    """
     trimmedTline = tline.strip()
     
-    if "/*" in trimmedTline:
-        tline = False
-    elif "|" in trimmedTline:
-        tline = False
-    elif "\*" in trimmedTline:
-        tline = False
-    elif "*" in trimmedTline: 
-        tline = False
+    # if "/*" in trimmedTline:
+    #     tline = False
+    # elif "|" in trimmedTline:
+    #     tline = False
+    # elif "\*" in trimmedTline:
+    #     tline = False
+    # elif "*" in trimmedTline: 
+    #     tline = False
+    # 检查是否是注释行
+    if not trimmedTline:  # 空行
+        return False
+    # OpenFOAM文件头注释模式
+    if (trimmedTline.startswith('/*') or
+        trimmedTline.startswith('|') or
+        trimmedTline.startswith('//') or
+        trimmedTline.startswith('**') or
+        "==" in trimmedTline or
+        "\\" in trimmedTline or
+        trimmedTline.endswith('*/')):
+        return False  # 是注释，应该跳过
     else:
         tline = tline
     return tline
@@ -178,7 +177,7 @@ def cfdReadCfdDictionary(fpid,**kwargs):
         dictionary[kwargs.get("line")[0]]=kwargs.get("line")[1]
         
     for line, tline in enumerate(fpid):
-        
+        tline=tline.split('//')[0].rstrip()
         if not cfdSkipEmptyLines(tline):
             continue
         

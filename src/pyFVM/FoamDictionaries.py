@@ -277,7 +277,8 @@ class FoamDictionaries():
                         if key == '//':
                              continue      
                         if 'maxIter' in self.fvSolution['solvers'][key]:
-                            continue
+                            # 转换成整数
+                            self.fvSolution['solvers'][key]['maxIter']=int(self.fvSolution['solvers'][key]['maxIter'])
                         else:
                             self.fvSolution['solvers'][key]['maxIter']=20
                             continue

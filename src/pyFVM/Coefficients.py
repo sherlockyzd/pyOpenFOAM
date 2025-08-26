@@ -55,6 +55,7 @@ class Coefficients():
         # self.setupCoefficients()
         self.MatrixFormat = Region.mesh.MatrixFormat # 默认格式
         self.NumberOfElements=int(Region.mesh.numberOfElements)
+        self._sparse_matrix_structure_needs_update = True
         ## see ac, however this is for the previous timestep? Check this later when you know more. 
         # self.ac_old=np.zeros((self.NumberOfElements),dtype=np.float64)
         # self._init_csr_format(Region)
@@ -111,6 +112,7 @@ class Coefficients():
         self._coofaceToRowIndex = Region.mesh.coofaceToRowIndex
         self._coodiagPositions = Region.mesh.coodiagPositions
         self.coodata = np.zeros(len(self._row), dtype=np.float64)
+        self._sparse_matrix_structure_needs_update = False
 
     def _init_csr_format(self, Region):
         # NumberOfElements=self.NumberOfElements
@@ -120,6 +122,7 @@ class Coefficients():
         self._csrfaceToRowIndex=Region.mesh.csrfaceToRowIndex
         # self._diag_positions = self._indptr[:-1]  # 每行起始位置就是对角位置
         self.csrdata = np.zeros(len(self._indices), dtype=np.float64)
+        self._sparse_matrix_structure_needs_update =False
 
     def _init_acnb_format(self, Region):
         """Initialize the matrix structure for the 'acnb' format."""
@@ -131,16 +134,17 @@ class Coefficients():
 
     def data_sparse_matrix_update(self):
         """Assembles the original matrix A from method To the sparse matrix csr format."""
-        if self.MatrixFormat=='acnb':
-            self._assemble_acnb_to_csr()
-        elif self.MatrixFormat=='coo':
-            self._assemble_coo_to_coo()
-        elif self.MatrixFormat=='ldu':
-            self._assemble_ldu_to_csr()
-        elif self.MatrixFormat=='csr':
-            self._assemble_csr_to_csr()
-        else:
-            raise ValueError(f"Unknown method")
+        if self._A_sparse_needs_update:
+            if self.MatrixFormat=='acnb':
+                self._assemble_acnb_to_csr()
+            elif self.MatrixFormat=='coo':
+                self._assemble_coo_to_coo()
+            elif self.MatrixFormat=='ldu':
+                self._assemble_ldu_to_csr()
+            elif self.MatrixFormat=='csr':
+                self._assemble_csr_to_csr()
+            else:
+                raise ValueError(f"Unknown method")
 
         self._A_sparse_needs_update = False
         return self._A_sparse

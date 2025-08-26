@@ -173,7 +173,7 @@ python pyFVMScript.py
 ```
 如果你想用cuda PETCs, 输入
 ```bash
-conda install petsc petsc4py
+conda install petsc petsc4py mpi4py
 nvidia-smi #check the cuda version
 #sudo apt install nvidia-cuda-toolkit
 conda install cuda-cudart cuda-version=12 #cuda version=12.7
