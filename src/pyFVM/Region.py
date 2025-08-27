@@ -23,7 +23,7 @@ class Region():
     def __init__(self,casePath):
         #预定义矩阵组装结构 acnb, ldu, coo, csr
         #本程序依据cfd原理原创的是'acnb'格式，openfoam使用的是'ldu'格式，可选：'acnb','ldu','coo','csr'。
-        self.MatrixFormat = 'coo' 
+        self.MatrixFormat = 'ldu' 
         # 控制稀疏矩阵使用策略                                     
         # False: 只有压力泊松方程使用稀疏矩阵（原有行为）             
         # True: 所有方程都使用稀疏矩阵（新的优化选项）
@@ -109,6 +109,7 @@ class Region():
         for iter in range(self.time.maxIter):
             self.time.iterationCount += 1
             self.ContinuityIteration()
+            # if iter%5 == 0:#无需每一步都计算，当iter能被5整除时计算
             self.ScalarTransportIteration()
             if self.model.residuals['sumRes'] < 1e-5:
                 break

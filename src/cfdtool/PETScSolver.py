@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-PETSc求解器集成模块
-优先实现PETSc分布式线性求解，为后续GPU+MPI组装做准备
+PETSc求解器 - 单核版本
+简化的PETSc线性求解器，专注于单核性能
 """
 import cfdtool.Math as mth
 import numpy as np
-from mpi4py import MPI
 # import sys
 # 检查PETSc可用性
 try:
@@ -28,19 +27,19 @@ except ImportError:
 #   self.b_petsc = PETSc.Vec().createCUDA(...)         # GPU向量
 
 
-# PETSc求解器对象池 - 避免重复创建销毁
-_petsc_solver_pool = {}
 
 class PETScSolver:
-    """PETSc分布式线性求解器 - 优化版本"""
-    def __init__(self, comm=None):
+    """PETSc单核线性求解器
+    PETSc对象包括：
+  - Mat: 稀疏矩阵
+  - Vec: 向量
+  - KSP: Krylov子空间求解器
+  - PC: 预处理器
+    """
+    def __init__(self):
         if not PETSC_AVAILABLE:
             raise ImportError("PETSc未安装，请运行: pip install petsc petsc4py")
-          
-        self.comm = comm or MPI.COMM_WORLD
-        self.rank = self.comm.Get_rank()
-        self.size = self.comm.Get_size()
-        
+
         # PETSc初始化
         PETSc.Sys.pushErrorHandler("python")
         
@@ -53,108 +52,133 @@ class PETScSolver:
         
         # 矩阵结构缓存
         self.matrix_structure_cached = False
-        self.cached_indptr = None
-        self.cached_indices = None
-        self.cached_size = None
+        self.cached_matrix_size = None
+        self.cached_nnz = None
         
-        # 性能优化配置
-        self.preconditioner_cached = False
+        # 配置缓存
         self.last_solver_config = None
         
-        if self.rank == 0:
-            print(f"PETSc求解器初始化完成，MPI进程数: {self.size}")
+        print("PETSc单核求解器初始化完成")
     
-    @classmethod
-    def get_cached_solver(cls, equation_name, matrix_size, comm=None):
-        """获取缓存的求解器实例，避免重复创建"""
-        key = f"{equation_name}_{matrix_size}_{comm.Get_rank() if comm else 0}"
-        
-        if key not in _petsc_solver_pool:
-            _petsc_solver_pool[key] = cls(comm=comm)
-            if comm is None or comm.Get_rank() == 0:
-                print(f"创建新的PETSc求解器缓存: {equation_name}")
-        
-        return _petsc_solver_pool[key]
     
-    def create_matrix_from_coefficients(self, theCoefficients):
-        """从现有系数结构创建PETSc分布式矩阵"""
-        n_local = theCoefficients.NumberOfElements
-        n_global = n_local  # 先简化为单进程情况
-        
-        
-        if not self.matrix_structure_cached:
-            # 首次创建 - 缓存矩阵结构
-            self._cache_matrix_structure(theCoefficients, n_local, n_global)
-            self._create_matrix_structure()
-            self.matrix_structure_cached = True
+    def create_matrix_from_csr_data(self, values, indptr, indices, matrix_size):
+        """从 CSR 数据创建PETSc矩阵"""
+        # 检查是否需要重建矩阵结构
+        if (not self.matrix_structure_cached or 
+            self.cached_matrix_size != matrix_size):
             
-            if self.rank == 0:
-                print(f"PETSc矩阵结构创建并缓存: {n_global}x{n_global}")
+            self._create_matrix_structure(values, indptr, matrix_size)
+            self.matrix_structure_cached = True
+            self.cached_matrix_size = matrix_size
+            print(f"PETSc矩阵创建: {matrix_size}x{matrix_size}")
         
-        # 更新稀疏矩阵数据
-        self._update_matrix_data(theCoefficients)
+        # 更新矩阵数据
+        self._update_matrix_data(values, indptr, indices)
     
-    def _estimate_nnz(self, theCoefficients):
-        """估算每行非零元素数量"""
-        if theCoefficients.MatrixFormat == 'acnb':
-            # ac对角 + anb非对角
-            avg_neighbors = np.mean([len(neighbors) for neighbors in theCoefficients._theCConn])
-            return int(avg_neighbors + 1)  # +1 for diagonal
-        elif theCoefficients.MatrixFormat == 'ldu':
-            # 估算LDU格式的非零元素
-            return len(theCoefficients.Upper) // theCoefficients.NumberOfElements + 1
-        else:
-            return 7  # 默认估算值
     
+    def _estimate_nnz(self, values, indptr):
+        """估算每行非零元素数量 - 使用更保守的估算"""
+        if len(indptr) <= 1:
+            return 10  # 默认值
+        
+        # 计算每行的实际nnz
+        row_nnz = []
+        for i in range(len(indptr) - 1):
+            row_nnz.append(indptr[i + 1] - indptr[i])
+        
+        # 使用最大值或平均值的1.5倍，取较大者
+        avg_nnz = sum(row_nnz) // len(row_nnz)
+        max_nnz = max(row_nnz)
+        
+        return max(max_nnz, int(avg_nnz * 1.5))
+    
+    def _create_matrix_structure(self, values, indptr, matrix_size):
+        """创建PETSc矩阵结构"""
+        actual_nnz = len(values)
+        nnz_per_row = self._estimate_nnz(values, indptr)
+        
+        # 创建单核AIJ矩阵
+        self.A_petsc = PETSc.Mat().createAIJ([matrix_size, matrix_size], nnz=nnz_per_row)
+        
+        # 允许新的非零元素分配，避免结构错误
+        self.A_petsc.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
+        
+        self.A_petsc.setUp()
+        
+        print(f"PETSc矩阵结构创建: {matrix_size}x{matrix_size}, nnz={actual_nnz}")
+    
+    def _update_matrix_data(self, values, indptr, indices):
+        """更新PETSc矩阵数据"""
+        # 清空矩阵
+        self.A_petsc.zeroEntries()
+        
+        # 使用CSR数据直接填充矩阵
+        self._update_csr_matrix(values, indptr, indices)
+        
+        # 矩阵组装
+        self.A_petsc.assemblyBegin()
+        self.A_petsc.assemblyEnd()
+    
+    def _update_csr_matrix(self, values, row_ptr, col_indices):
+        """使用CSR数据更新PETSc矩阵"""
+        # 批量设置矩阵元素 - 逐行处理以提高缓存效率
+        for i in range(len(row_ptr) - 1):
+            start = row_ptr[i]
+            end = row_ptr[i + 1]
+            
+            if end > start:  # 该行有非零元素
+                row_cols = col_indices[start:end]
+                row_vals = values[start:end]
+                # 批量设置一整行
+                self.A_petsc.setValues(i, row_cols, row_vals)
     
     def create_vectors(self, theCoefficients):
         """创建PETSc向量"""
-        n_local = theCoefficients.NumberOfElements
-        n_global = n_local
+        n = theCoefficients.NumberOfElements
         
-        # 创建右端向量
-        self.b_petsc = PETSc.Vec().createMPI(
-            size=(n_local, n_global), 
-            comm=self.comm
-        )
+        # 创建单核向量
+        self.b_petsc = PETSc.Vec().createSeq(n)
+        self.x_petsc = PETSc.Vec().createSeq(n)
         
-        # 创建解向量
-        self.x_petsc = self.b_petsc.duplicate()
+        # 设置右端向量
+        if hasattr(theCoefficients, 'bc'):
+            b_data = theCoefficients.bc
+        else:
+            b_data = np.zeros(n)
         
-        # 设置初始值
-        rstart, rend = self.b_petsc.getOwnershipRange()
-        
-        # 设置RHS
-        b_local = theCoefficients.bc[rstart:rend] if hasattr(theCoefficients, 'bc') else np.zeros(rend-rstart)
-        self.b_petsc.setArray(b_local)
+        self.b_petsc.setArray(b_data)
         
         # 设置初始解
-        x_local = theCoefficients.dphi[rstart:rend] if hasattr(theCoefficients, 'dphi') else np.zeros(rend-rstart)
-        self.x_petsc.setArray(x_local)
+        if hasattr(theCoefficients, 'dphi'):
+            x_data = theCoefficients.dphi
+        else:
+            x_data = np.zeros(n)
         
+        self.x_petsc.setArray(x_data)
+        
+        # 向量组装
         self.b_petsc.assemblyBegin()
         self.b_petsc.assemblyEnd()
-        self.x_petsc.assemblyBegin() 
+        self.x_petsc.assemblyBegin()
         self.x_petsc.assemblyEnd()
+        
+        print("PETSc向量创建完成")
     
-    def setup_solver(self, solver_type='gmres', preconditioner='gamg', **kwargs):
-        """配置PETSc求解器 - 带智能缓存复用"""
+    def setup_solver(self, solver_type='gmres', preconditioner='ilu', **kwargs):
+        """配置PETSc求解器"""
         current_config = f"{solver_type}_{preconditioner}_{kwargs.get('rtol', 1e-6)}"
         
-        # 检查是否可以复用现有配置
+        # 检查配置复用
         if (self.ksp is not None and 
-            self.last_solver_config == current_config and 
-            self.preconditioner_cached):
-            
-            # 只需要更新算子，复用求解器配置
+            self.last_solver_config == current_config):
+            # 只需要更新算子
             self.ksp.setOperators(self.A_petsc)
-            if self.rank == 0:
-                print(f"复用PETSc求解器配置: {solver_type} + {preconditioner}")
+            print(f"复用求解器配置: {solver_type} + {preconditioner}")
             return
         
-        # 创建或重新配置求解器
+        # 创建新的求解器
         if self.ksp is None:
-            self.ksp = PETSc.KSP().create(comm=self.comm)
+            self.ksp = PETSc.KSP().create()
         
         self.ksp.setOperators(self.A_petsc)
         
@@ -175,10 +199,8 @@ class PETScSolver:
         
         # 缓存配置
         self.last_solver_config = current_config
-        self.preconditioner_cached = True
         
-        if self.rank == 0:
-            print(f"PETSc求解器配置: {solver_type} + {preconditioner}")
+        print(f"PETSc求解器配置: {solver_type} + {preconditioner}")
     
     def _configure_solver_type(self, solver_type, **kwargs):
         """配置求解器类型"""
@@ -189,23 +211,29 @@ class PETScSolver:
             self.ksp.setType(PETSc.KSP.Type.CG)
         elif solver_type.lower() == 'bicgstab':
             self.ksp.setType(PETSc.KSP.Type.BCGS)
+        elif solver_type.lower() == 'richardson':
+            self.ksp.setType(PETSc.KSP.Type.RICHARDSON)
         else:
+            print(f"未知求解器类型 {solver_type}，使用GMRES")
             self.ksp.setType(PETSc.KSP.Type.GMRES)
     
     def _configure_preconditioner(self, preconditioner):
         """配置预处理器"""
         self.pc = self.ksp.getPC()
-        if preconditioner.lower() == 'gamg':
-            self.pc.setType(PETSc.PC.Type.GAMG)
-            self.pc.setGAMGType(PETSc.PC.GAMGType.AGG)
-        elif preconditioner.lower() == 'ilu':
+        
+        if preconditioner.lower() == 'ilu':
             self.pc.setType(PETSc.PC.Type.ILU)
         elif preconditioner.lower() == 'jacobi':
             self.pc.setType(PETSc.PC.Type.JACOBI)
+        elif preconditioner.lower() == 'sor':
+            self.pc.setType(PETSc.PC.Type.SOR)
+        elif preconditioner.lower() == 'lu':
+            self.pc.setType(PETSc.PC.Type.LU)
         elif preconditioner.lower() == 'none':
             self.pc.setType(PETSc.PC.Type.NONE)
         else:
-            self.pc.setType(PETSc.PC.Type.GAMG)
+            print(f"未知预处理器 {preconditioner}，使用ILU")
+            self.pc.setType(PETSc.PC.Type.ILU)
     
     def _configure_tolerances(self, **kwargs):
         """配置收敛参数"""
@@ -215,40 +243,35 @@ class PETScSolver:
         
         self.ksp.setTolerances(rtol=rtol, atol=atol, max_it=max_iter)
         
-        if self.rank == 0:
-            print(f"求解器容差: rtol={rtol:.2e}, atol={atol:.2e}, max_iter={max_iter}")
+        print(f"收敛参数: rtol={rtol:.2e}, atol={atol:.2e}, max_iter={max_iter}")
     
     def _configure_performance_options(self):
-        """配置性能优化选项 - 兼容不同PETSc版本"""
+        """配置性能优化选项"""
         try:
-            # 启用预处理器复用以提升性能（如果支持）
+            # 启用预处理器复用
             if self.matrix_structure_cached:
                 if hasattr(self.ksp, 'setReusePreconditioner'):
                     self.ksp.setReusePreconditioner(True)
                 
                 if hasattr(self.ksp, 'setInitialGuessNonzero'):
-                    self.ksp.setInitialGuessNonzero(True)  # 使用非零初始猜测
+                    self.ksp.setInitialGuessNonzero(True)
         except Exception as e:
-            if self.rank == 0:
-                print(f"预处理器复用配置跳过: {e}")
+            print(f"性能优化配置跳过: {e}")
         
         try:
             # 设置矩阵优化选项
             if hasattr(self.A_petsc, 'setOption'):
                 self.A_petsc.setOption(PETSc.Mat.Option.USE_HASH_TABLE, False)
-                if self.size > 1:
-                    self.A_petsc.setOption(PETSc.Mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
         except Exception as e:
-            if self.rank == 0:
-                print(f"矩阵优化选项配置跳过: {e}")
+            print(f"矩阵优化选项配置跳过: {e}")
     
-    def solve(self, solver_type='gmres', preconditioner='gamg'):
-        """执行线性求解，带备用方案"""
+    def solve(self, solver_type='gmres', preconditioner='ilu'):
+        """执行线性求解"""
         if self.ksp is None:
             raise RuntimeError("求解器未初始化，请先调用setup_solver()")
         
         try:
-            # 主要求解
+            # 执行求解
             self.ksp.solve(self.b_petsc, self.x_petsc)
             
             # 获取收敛信息
@@ -256,237 +279,62 @@ class PETScSolver:
             iterations = self.ksp.getIterationNumber()
             residual = self.ksp.getResidualNorm()
             
-            if self.rank == 0:
-                if reason > 0:
-                    print(f"PETSc求解成功: {iterations}次迭代, 残差={residual:.2e}")
-                else:
-                    print(f"PETSc求解失败: reason={reason}, {iterations}次迭代")
+            if reason > 0:
+                print(f"PETSc求解成功: {iterations}次迭代, 残差={residual:.2e}")
+                success = True
+            else:
+                print(f"PETSc求解失败: reason={reason}, {iterations}次迭代, 残差={residual:.2e}")
+                success = False
+                
+                # 尝试备用方案
+                if preconditioner != 'lu':
+                    print("尝试LU分解作为备用方案")
+                    return self._fallback_solve()
             
-            # 如果失败，尝试备用方案
-            if reason <= 0:
-                success, iterations, residual = self._handle_solver_failure(reason, solver_type, preconditioner)
-                return success, iterations, residual
-            
-            return True, iterations, residual
+            return success, iterations, np.float64(residual)
             
         except Exception as e:
-            if self.rank == 0:
-                print(f"求解异常: {e}")
-            # 尝试备用方案
-            return self._handle_solver_failure(-999, solver_type, preconditioner)
+            print(f"求解异常: {e}")
+            return self._fallback_solve()
+    
+    def _fallback_solve(self):
+        """备用求解方案"""
+        try:
+            # 使用直接求解器
+            self.pc.setType(PETSc.PC.Type.LU)
+            self.ksp.setType(PETSc.KSP.Type.PREONLY)  # 只使用预处理器
+            self.ksp.setFromOptions()
+            
+            self.ksp.solve(self.b_petsc, self.x_petsc)
+            
+            reason = self.ksp.getConvergedReason()
+            iterations = self.ksp.getIterationNumber()
+            residual = self.ksp.getResidualNorm()
+            
+            if reason > 0:
+                print(f"备用求解器成功: LU直接求解, 残差={residual:.2e}")
+                return True, iterations, np.float64(residual)
+            else:
+                print("备用求解器也失败")
+                return False, 0, np.float64(0.0)
+                
+        except Exception as e:
+            print(f"备用求解器异常: {e}")
+            return False, 0, np.float64(0.0)
     
     def get_solution(self):
         """获取解向量"""
         if self.x_petsc is None:
             raise RuntimeError("解向量不存在")
         
-        # 获取本地部分
-        rstart, rend = self.x_petsc.getOwnershipRange()
-        x_local = self.x_petsc.getArray()
-        
-        return x_local.copy()
+        return self.x_petsc.getArray().copy()
     
     def update_coefficients(self, theCoefficients):
-        """将PETSc解更新回系数结构"""
-        x_local = self.get_solution()
-        rstart, rend = self.x_petsc.getOwnershipRange()
-        
-        # 更新dphi
-        theCoefficients.dphi[rstart:rend] = x_local
-        
-        if self.rank == 0:
-            print("解向量已更新到coefficients.dphi")
+        """将求解结果更新回系数结构"""
+        solution = self.get_solution()
+        theCoefficients.dphi = solution
+        print("解向量已更新到coefficients.dphi")
     
-    
-    def _cache_matrix_structure(self, theCoefficients, n_local, n_global):
-        """缓存稀疏矩阵结构信息"""
-        if theCoefficients.MatrixFormat in ['csr', 'acnb', 'ldu']:
-            self.cached_indptr = theCoefficients._indptr.copy()
-            self.cached_indices = theCoefficients._indices.copy()
-        elif theCoefficients.MatrixFormat == 'coo':
-            self.cached_coo_row = theCoefficients._row.copy()
-            self.cached_coo_col = theCoefficients._col.copy()
-        else:
-            raise ValueError(f"PETScSolver只支持CSR/COO稀疏格式，当前格式: {theCoefficients.MatrixFormat}")
-        
-        self.cached_size = (n_local, n_global)
-    
-    def _create_matrix_structure(self):
-        """创建PETSc稀疏矩阵结构"""
-        n_local, n_global = self.cached_size
-        
-        # 基于缓存的稀疏结构信息精确估算nnz
-        if self.cached_indptr is not None:
-            # CSR格式：精确计算每行非零元素数
-            nnz_per_row = []
-            for i in range(len(self.cached_indptr) - 1):
-                nnz_per_row.append(self.cached_indptr[i+1] - self.cached_indptr[i])
-            nnz = max(nnz_per_row) if nnz_per_row else 7
-        else:
-            # COO格式：估算平均非零元素数
-            nnz = max(1, int(len(self.cached_coo_row) / n_local))
-        
-        # 创建PETSc矩阵
-        self.A_petsc = PETSc.Mat().createAIJ(
-            size=((n_local, n_global), (n_local, n_global)),
-            nnz=nnz,
-            comm=self.comm
-        )
-        
-        # 允许动态分配新的非零元素（预防措施）
-        self.A_petsc.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
-    
-    def _update_matrix_data(self, theCoefficients):
-        """简化的矩阵数据更新 - 避免复杂优化"""
-        rstart, rend = self.A_petsc.getOwnershipRange()
-        
-        # 清零矩阵
-        self.A_petsc.zeroEntries()
-        
-        # 直接使用原始的简单设置方式
-        if theCoefficients.MatrixFormat in ['csr', 'ldu', 'acnb']:
-            data = theCoefficients.csrdata
-            indptr = theCoefficients._indptr
-            indices = theCoefficients._indices
-            
-            for i_local in range(rend - rstart):
-                i_global = rstart + i_local
-                if i_local < len(indptr) - 1:
-                    start_idx = indptr[i_local]
-                    end_idx = indptr[i_local + 1]
-                    
-                    if start_idx < end_idx and end_idx <= len(data):
-                        cols = indices[start_idx:end_idx]
-                        vals = data[start_idx:end_idx]
-                        self.A_petsc.setValues([i_global], cols, vals,
-                                             addv=PETSc.InsertMode.INSERT_VALUES)
-        
-        elif theCoefficients.MatrixFormat == 'coo':
-            A_csr = theCoefficients._A_sparse.tocsr()
-            
-            for i_local in range(rend - rstart):
-                i_global = rstart + i_local
-                if i_local < len(A_csr.indptr) - 1:
-                    start_idx = A_csr.indptr[i_local]
-                    end_idx = A_csr.indptr[i_local + 1]
-                    
-                    if start_idx < end_idx:
-                        cols = A_csr.indices[start_idx:end_idx]
-                        vals = A_csr.data[start_idx:end_idx]
-                        self.A_petsc.setValues([i_global], cols, vals,
-                                             addv=PETSc.InsertMode.INSERT_VALUES)
-        
-        # 完成矩阵组装
-        self.A_petsc.assemblyBegin()
-        self.A_petsc.assemblyEnd()
-    
-    def _get_csr_data(self, theCoefficients):
-        """统一获取CSR格式数据"""
-        if theCoefficients.MatrixFormat in ['csr', 'ldu', 'acnb']:
-            return (theCoefficients.csrdata, 
-                   theCoefficients._indptr, 
-                   theCoefficients._indices)
-        elif theCoefficients.MatrixFormat == 'coo':
-            A_csr = theCoefficients._A_sparse.tocsr()
-            return A_csr.data, A_csr.indptr, A_csr.indices
-        else:
-            raise ValueError(f"PETScSolver只支持CSR/COO格式，当前格式: {theCoefficients.MatrixFormat}")
-    
-    def _batch_set_csr_data(self, data, indptr, indices, rstart, rend):
-        """批量设置CSR数据到PETSc矩阵 - 带安全检查"""
-        # 安全检查
-        n_rows = rend - rstart
-        if len(indptr) < n_rows + 1:
-            raise ValueError(f"indptr长度不足: 需要{n_rows + 1}, 实际{len(indptr)}")
-        
-        for i_local in range(n_rows):
-            i_global = rstart + i_local
-            
-            # 确保不越界
-            if i_local >= len(indptr) - 1:
-                if self.rank == 0:
-                    print(f"警告: indptr索引越界，跳过行 {i_global}")
-                continue
-                
-            start_idx = indptr[i_local]
-            end_idx = indptr[i_local + 1]
-            
-            # 检查索引范围
-            if start_idx < 0 or end_idx < 0 or start_idx > len(data) or end_idx > len(data):
-                if self.rank == 0:
-                    print(f"警告: 数据索引越界 行{i_global}: [{start_idx}:{end_idx}], 数据长度{len(data)}")
-                continue
-                
-            if start_idx < end_idx:
-                cols = indices[start_idx:end_idx]
-                vals = data[start_idx:end_idx]
-                
-                # 验证列索引
-                if len(cols) > 0 and (cols.min() < 0 or cols.max() >= self.cached_size[1]):
-                    if self.rank == 0:
-                        print(f"警告: 列索引越界 行{i_global}: 列范围[{cols.min()}, {cols.max()}]")
-                    continue
-                
-                try:
-                    self.A_petsc.setValues([i_global], cols, vals,
-                                         addv=PETSc.InsertMode.INSERT_VALUES)
-                except Exception as e:
-                    if self.rank == 0:
-                        print(f"设置矩阵值失败 行{i_global}: {e}")
-                    continue
-    
-    
-    
-    def _validate_matrix(self):
-        """验证矩阵质量，避免病态矩阵"""
-        try:
-            # 检查矩阵是否有空行
-            row_sums = self.A_petsc.getDiagonal()
-            zero_diag_count = 0
-            
-            # 获取对角元素
-            diag_array = row_sums.getArray()
-            for i, diag_val in enumerate(diag_array):
-                if abs(diag_val) < 1e-14:
-                    zero_diag_count += 1
-            
-            if zero_diag_count > 0 and self.rank == 0:
-                print(f"警告: 检测到{zero_diag_count}个接近零的对角元素，可能导致求解问题")
-            
-        except Exception as e:
-            if self.rank == 0:
-                print(f"矩阵验证失败: {e}")
-    
-    def _handle_solver_failure(self, reason, solver_type, preconditioner):
-        """处理求解器失败，尝试备用方案"""
-        if self.rank == 0:
-            print(f"求解器失败 (reason={reason})，尝试备用方案...")
-        
-        # 对于GAMG失败，尝试ILU
-        if preconditioner.lower() == 'gamg':
-            if self.rank == 0:
-                print("GAMG预处理器失败，切换到ILU预处理器")
-            
-            # 重新配置求解器
-            self.pc.setType(PETSc.PC.Type.ILU)
-            self.ksp.setFromOptions()
-            
-            # 再次尝试求解
-            try:
-                self.ksp.solve(self.b_petsc, self.x_petsc)
-                reason = self.ksp.getConvergedReason()
-                iterations = self.ksp.getIterationNumber()
-                residual = self.ksp.getResidualNorm()
-                
-                if reason > 0:
-                    if self.rank == 0:
-                        print(f"备用求解器成功: {iterations}次迭代, 残差={residual:.2e}")
-                    return True, iterations, residual
-            except Exception as e:
-                if self.rank == 0:
-                    print(f"备用求解器也失败: {e}")
-        
-        return False, 0, 0.0
     
     def cleanup(self):
         """清理PETSc对象"""
@@ -499,30 +347,47 @@ class PETScSolver:
         if self.x_petsc:
             self.x_petsc.destroy()
         
-        # 清理缓存
+        # 重置缓存
         self.matrix_structure_cached = False
-        self.cached_indptr = None
-        self.cached_indices = None
+
+
+def _get_csr_data(theCoefficients):
+    """统一获取CSR格式数据"""
+    if theCoefficients.MatrixFormat in ['csr', 'ldu', 'acnb']:
+        return (theCoefficients.csrdata, 
+               theCoefficients._indptr, 
+               theCoefficients._indices)
+    elif theCoefficients.MatrixFormat == 'coo':
+        A_csr = theCoefficients._A_sparse.tocsr()
+        return A_csr.data, A_csr.indptr, A_csr.indices
+    else:
+        raise ValueError(f"PETScSolver只支持CSR/COO格式，当前格式: {theCoefficients.MatrixFormat}")
 
 
 def cfdSolvePETSc(theCoefficients, maxIter=1000, tolerance=1e-6, relTol=0.1, 
-                  solver_type='gmres', preconditioner='gamg', comm=None):
+                  solver_type='gmres', preconditioner='ilu'):
     """
-    PETSc求解器的高层接口，兼容现有代码
+    PETSc求解器的高层接口 - 单核CSR版本
     
     Args:
-        theCoefficients: 系数对象
+        theCoefficients: 系数对象 (支持CSR/COO格式)
+            CSR格式要求: csrdata, _indptr, _indices
+            COO格式要求: _A_sparse (scipy.sparse矩阵)
+            通用要求: bc (右端向量), dphi (解向量，可选)
         maxIter: 最大迭代次数
         tolerance: 绝对收敛容限
         relTol: 相对收敛容限  
         solver_type: 求解器类型 ('gmres', 'cg', 'bicgstab')
-        preconditioner: 预处理器 ('gamg', 'ilu', 'jacobi')
-        comm: MPI通信子
+        preconditioner: 预处理器 ('ilu', 'jacobi', 'sor', 'lu')
     
     Returns:
         (initRes, finalRes): 初始和最终残差
     """
     theCoefficients.data_sparse_matrix_update()
+    
+    # 获取CSR格式数据
+    values, indptr, indices = _get_csr_data(theCoefficients)
+    
     # 计算初始残差
     residualsArray = theCoefficients.cfdComputeResidualsArray()
     initRes = mth.cfdResidual(residualsArray)
@@ -530,11 +395,12 @@ def cfdSolvePETSc(theCoefficients, maxIter=1000, tolerance=1e-6, relTol=0.1,
     if initRes < tolerance or maxIter == 0:
         return initRes, initRes
     
-    # 暂时禁用求解器缓存，避免潜在的内存问题
-    petsc_solver = PETScSolver(comm=comm)
+    # 创建单核PETSc求解器
+    petsc_solver = PETScSolver()
     
-    # 转换矩阵格式
-    petsc_solver.create_matrix_from_coefficients(theCoefficients)
+    # 创建矩阵和向量
+    matrix_size = theCoefficients.NumberOfElements
+    petsc_solver.create_matrix_from_csr_data(values, indptr, indices, matrix_size)
     petsc_solver.create_vectors(theCoefficients)
     
     # 配置求解器
@@ -552,7 +418,7 @@ def cfdSolvePETSc(theCoefficients, maxIter=1000, tolerance=1e-6, relTol=0.1,
     if success:
         # 更新解到原系数结构
         petsc_solver.update_coefficients(theCoefficients)
-        finalRes = final_residual
+        finalRes = np.float64(final_residual)
     else:
         finalRes = initRes
         print("警告: PETSc求解未收敛，保持原解")

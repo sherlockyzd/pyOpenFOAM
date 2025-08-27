@@ -34,16 +34,7 @@ def cfdSolveEquation(Region,theEquationName, iComponent):
         if PETSC_AVAILABLE:
             petsc_solver_type = Region.dictionaries.fvSolution['solvers'][theEquationName].get('petsc_solver', 'gmres')
             petsc_preconditioner = Region.dictionaries.fvSolution['solvers'][theEquationName].get('preconditioner', 'gamg')
-            
-            [initRes, finalRes] = cfdSolvePETSc(
-                Region.coefficients, 
-                maxIter=maxIter,
-                tolerance=tolerance, 
-                relTol=relTol,
-                solver_type=petsc_solver_type,
-                preconditioner=petsc_preconditioner
-            )
-            
+            [initRes, finalRes] = cfdSolvePETSc(Region.coefficients,maxIter=maxIter,tolerance=tolerance, relTol=relTol,solver_type=petsc_solver_type,preconditioner=petsc_preconditioner)
             print(f"PETSc求解完成: {petsc_solver_type} + {petsc_preconditioner}")
         else:
             io.cfdError("PETSc不可用，回退到PCG求解器")
