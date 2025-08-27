@@ -171,16 +171,26 @@ conda activate pyOpenFOAM
 cd example/cavity
 python pyFVMScript.py
 ```
-如果你想用cuda PETCs, 输入
+如果你想用PETCs, 输入
 ```bash
-conda install petsc petsc4py mpi4py
+conda install petsc petsc4py
+```
+如果你想用cuda PETCs（gpu并行版）, 输入
+```bash
 nvidia-smi #check the cuda version
-#sudo apt install nvidia-cuda-toolkit
-conda install cuda-cudart cuda-version=12 #cuda version=12.7
-echo 'export OMPI_MCA_opal_cuda_support=true' >> ~/.bashrc
-echo 'export UCX_MEMTYPE_CACHE=n' >> ~/.bashrc
+nvcc --version
+conda install -c conda-forge petsc=*=*cuda* petsc4py
+# For CUDA 12, run:    
+conda install cuda-cudart cuda-version=12
+# For CUDA 13, run:    
+conda install cuda-cudart cuda-version=13
+echo 'export PETSC_OPTIONS="-use_gpu_aware_mpi 0"' >> ~/.bashrc
 source ~/.bashrc
-pip install jax[cuda]
+# conda install cuda-cudart cuda-version=12 #cuda version=12.7
+# echo 'export OMPI_MCA_opal_cuda_support=true' >> ~/.bashrc
+# echo 'export UCX_MEMTYPE_CACHE=n' >> ~/.bashrc
+# source ~/.bashrc
+# pip install jax[cuda]
 ```
 
 
