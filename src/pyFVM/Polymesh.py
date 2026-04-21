@@ -192,7 +192,7 @@ class Polymesh():
         这个方法是读取和解析OpenFOAM网格点文件的关键步骤，为后续的网格处理和CFD模拟提供了节点坐标数据。
         """
 
-        with open(self.pointsFile,"r") as fpid:
+        with open(self.pointsFile,"r", encoding="utf-8") as fpid:
             
             print('Reading points file ...')
             points = []
@@ -286,7 +286,7 @@ class Polymesh():
             这个方法是读取和解析OpenFOAM网格面文件的关键步骤，为后续的网格处理和CFD模拟提供了面的节点信息。代码中存在一些不一致之处，例如注释掉的`faceNodesi.append(int(node))`和紧接着的`else`子句中的`float`转换，这可能是代码维护过程中的遗留问题。在实际使用中，应确保节点索引是整数，因此应使用`int`而不是`float`进行转换。
         """ 
 
-        with open(self.facesFile,"r") as fpid:
+        with open(self.facesFile,"r", encoding="utf-8") as fpid:
             print('Reading faces file ...')
             # self.faceNodes=[]
             faces = []
@@ -381,7 +381,7 @@ class Polymesh():
         这个方法是读取和解析OpenFOAM网格所有者文件的关键步骤，为后续的网格处理和CFD模拟提供了面的拥有者信息。
         """ 
 
-        with open(self.ownerFile,"r") as fpid:
+        with open(self.ownerFile,"r", encoding="utf-8") as fpid:
             print('Reading owner file ...')
 
             ## (list) 1D, indices refer to faces, list value is the face's owner cell
@@ -461,7 +461,7 @@ class Polymesh():
 
         这个方法是读取和解析OpenFOAM网格邻居文件的关键步骤，为后续的网格处理和CFD模拟提供了面的邻居信息。这有助于理解网格的拓扑结构，特别是在处理非结构化网格时。
         """ 
-        with open(self.neighbourFile,"r") as fpid:
+        with open(self.neighbourFile,"r", encoding="utf-8") as fpid:
             print('Reading neighbour file ...')
 
             ## (list) 1D, indices refer to faces, list value is the face's neighbour cell
@@ -540,7 +540,7 @@ class Polymesh():
         这个方法是读取和解析OpenFOAM网格边界文件的关键步骤，为后续的网格处理和CFD模拟提供了边界补丁的详细信息。这有助于理解网格的边界条件和拓扑结构。
         """
 
-        with open(self.boundaryFile,"r") as fpid:
+        with open(self.boundaryFile,"r", encoding="utf-8") as fpid:
             print('Reading boundary file ...')
             
             ## (dict) key for each boundary patch

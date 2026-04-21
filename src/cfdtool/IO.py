@@ -84,7 +84,7 @@ def cfdGetFoamFileHeader(fieldFilePath):
     11. `return header`：返回解析得到的头信息字典`header`。
     总结来说，这个函数的目的是打开一个指定路径的OpenFOAM文件，跳过空行和宏定义注释，找到包含"FoamFile"的行，并从该行开始读取和解析文件的头信息，最后返回这个头信息的字典。注意，`cfdSkipEmptyLines`、`cfdSkipMacroComments`和`cfdReadCfdDictionary`这些函数在其他地方定义的辅助函数，用于处理特定的文件解析任务。
     """
-    with open(fieldFilePath,"r") as fpid:
+    with open(fieldFilePath,"r", encoding="utf-8") as fpid:
         print('Reading %s file ...' %(fieldFilePath))
        
         header={}
@@ -322,7 +322,7 @@ def cfdReadAllDictionaries(filePath):
         
     """    
     try:
-        with open(filePath,"r") as fpid:
+        with open(filePath,"r", encoding="utf-8") as fpid:
         
             isDictionary=False
             isSubDictionary=False
@@ -442,7 +442,7 @@ def cfdGetKeyValue(key, valueType, fileID):
     函数的返回值是一个列表，其中包含三个元素：关键字、分布类型和值列表。这种设计允许函数返回关于关键字的详细信息，而不仅仅是值本身。这在处理OpenFOAM文件时可能非常有用，因为这些文件可能包含不同类型的数据和分布信息。
     """
     
-    with open(fileID,"r") as fpid:
+    with open(fileID,"r", encoding="utf-8") as fpid:
 
         for linecount, tline in enumerate(fpid):
             
@@ -482,6 +482,65 @@ def cfdGetKeyValue(key, valueType, fileID):
                         pass
                         
     return [key, distribution, value]
+
+def cfdReadNonuniformList(fileID, key, expectedSize):
+    """Read a nonuniform List field from an OpenFOAM field file.
+    
+    Supports both scalar (List<scalar>) and vector (List<vector>) formats.
+    
+    Args:
+        fileID (str): path to the OpenFOAM field file.
+        key (str): the keyword to locate (e.g. 'internalField').
+        expectedSize (int): expected number of entries.
+    
+    Returns:
+        numpy.ndarray: shape (N,) for scalar, (N, 3) for vector.
+    """
+    import numpy as np
+    values = []
+    is_vector = False
+    inside_list = False
+    count = 0
+
+    with open(fileID, "r", encoding="utf-8") as f:
+        found_key = False
+        for line in f:
+            stripped = line.strip()
+            if not found_key:
+                if key in stripped and 'nonuniform' in stripped:
+                    found_key = True
+                    if 'vector' in stripped:
+                        is_vector = True
+                    continue
+            else:
+                # After finding key line, look for the count line then '('
+                if stripped == '(':
+                    inside_list = True
+                    continue
+                elif stripped == ')':
+                    break
+                elif stripped.isdigit():
+                    count = int(stripped)
+                    continue
+                elif inside_list:
+                    # Parse scalar or vector entry
+                    entry = stripped.replace('(', '').replace(')', '').split()
+                    try:
+                        values.append([float(v) for v in entry])
+                    except ValueError:
+                        pass
+
+    arr = np.array(values)
+    if arr.size == 0:
+        if is_vector:
+            return np.zeros((expectedSize, 3))
+        else:
+            return np.zeros(expectedSize)
+    
+    if arr.ndim == 2 and arr.shape[1] == 1:
+        arr = arr.flatten()
+    
+    return arr
 
 def contains_term(equation, term):
     # 使用正则表达式分解字符串
@@ -629,7 +688,7 @@ def cfdWriteOpenFoamParaViewDatavtk(Region):
     current_time = Region.time.currentTime
     output_file = os.path.join(output_dir, f'{current_time}.vtk')
 
-    with open(output_file, 'w') as vtk_file:
+    with open(output_file, 'w', encoding="utf-8") as vtk_file:
         # 写入VTK文件头
         vtk_file.write('# vtk DataFile Version 3.0\n')
         vtk_file.write('CFD simulation data\n')
@@ -725,7 +784,7 @@ def generate_boundary_conditions(field_name, Region):
 
 
 def write_field(location, file_path, field_name, field_data, field_type, dimensions, boundary_conditions):
-    with open(file_path, 'w') as file:
+    with open(file_path, 'w', encoding="utf-8") as file:
         file.write("/*--------------------------------*- C++ -*----------------------------------*\\\n")
         file.write("| =========                 |                                                 |\n")
         file.write("| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |\n")

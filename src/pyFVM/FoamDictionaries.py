@@ -108,7 +108,7 @@ class FoamDictionaries():
         controlDictFileDirectory = r"%s/system/controlDict" % Region.caseDirectoryPath
         
         try:
-            with open(controlDictFileDirectory,"r") as fpid:
+            with open(controlDictFileDirectory,"r", encoding="utf-8") as fpid:
 
                 ## Dictionary with keys and values read from the 'controlDict' file.
                 self.controlDict={}
@@ -176,7 +176,7 @@ class FoamDictionaries():
         ## Dictionary with keys and values read from the 'fvSchemes' file. 
         self.fvSchemes={}
         
-        with open(fvSchemesFileDirectory,"r") as fpid:
+        with open(fvSchemesFileDirectory,"r", encoding="utf-8") as fpid:
             
             for linecount, tline in enumerate(fpid):
                 
@@ -261,7 +261,7 @@ class FoamDictionaries():
         print('Reading fvSolution file ...')
         fvSolutionFileDirectory = r"%s/system/fvSolution" % Region.caseDirectoryPath 
         self.fvSolution={}
-        with open(fvSolutionFileDirectory,"r") as fpid:
+        with open(fvSolutionFileDirectory,"r", encoding="utf-8") as fpid:
             
             for linecount, tline in enumerate(fpid):
                 if not io.cfdSkipEmptyLines(tline):
@@ -487,14 +487,14 @@ class FoamDictionaries():
             
         elif self.controlDict['startFrom']=='latestTime':
             self.cfdGetTimeSteps(Region)
-            Region.timeDirectory=max(Region.timeDictionary)
+            Region.timeDirectory=max(Region.timeDictionary, key=lambda t: float(t))
             
         elif self.controlDict['startFrom']=='firstTime':   
             ## I think in this case, the timeDirectory should be the minimum in 
             ## the list of time directories in the working folder (analogous to
             ## the latestTime case)
             self.cfdGetTimeSteps(Region)
-            Region.timeDirectory=min(self.timeDictionary)         
+            Region.timeDirectory=min(Region.timeDictionary, key=lambda t: float(t))         
             
         else:
             print("Error in controlDict: startFrom is not valid!")
@@ -540,7 +540,13 @@ class FoamDictionaries():
                     Region.fluid[fieldName].phi.value[:theNumberOfElements] = np.array(value_str)
 
             elif valueType == 'nonuniform':
-                io.cfdError('The function cfdReadNonuniformList() is not yet writen.')
+                # Read nonuniform list from field file
+                nonuniform_data = io.cfdReadNonuniformList(fieldFilePath, 'internalField', theNumberOfElements)
+                if Region.fluid[fieldName].type == 'volScalarField':
+                    data_1d = nonuniform_data[:theNumberOfElements].flatten()
+                    Region.fluid[fieldName].phi.value[:theNumberOfElements] = data_1d.reshape(Region.fluid[fieldName].phi.value[:theNumberOfElements].shape)
+                elif Region.fluid[fieldName].type == 'volVectorField':
+                    Region.fluid[fieldName].phi.value[:theNumberOfElements] = nonuniform_data[:theNumberOfElements]
             # del(valueType)#防止内部的值对以下边界的误判！！！
                 
             for iBPatch, values in Region.mesh.cfdBoundaryPatchesArray.items():          
@@ -699,10 +705,11 @@ class FoamDictionaries():
             for folder in directory:
                 if self.cfdIsTimeDirectory(os.path.join(root, folder)):
                     #check for decimal place in folder name
-                    if float(folder)-int(folder) != 0:
-                        Region.timeDictionary.append(str(float(folder)))
-                    elif float(folder)-int(folder) ==0:
-                        Region.timeDictionary.append(str(int(folder)))
+                    folder_float = float(folder)
+                    if folder_float - int(folder_float) != 0:
+                        Region.timeDictionary.append(str(folder_float))
+                    else:
+                        Region.timeDictionary.append(str(int(folder_float)))
 
     def cfdIsTimeDirectory(self,theDirectoryPath):
         """Checks input directory if it is a valid time directory.
