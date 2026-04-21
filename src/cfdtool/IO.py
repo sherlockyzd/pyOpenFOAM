@@ -38,34 +38,19 @@ def cfdPrintHeader():
     print('||*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*||\n')
 
 def MomentumPrintIteration(iComponent):
-    print('|==========================================================================|\n')
-    print('                     Momentum Iteration Component part %d \n'%iComponent)
-    print('|--------------------------------------------------------------------------|\n')
+    pass  # 高频调用，已静默优化
 
 def ContinuityPrintIteration():
-    print('|==========================================================================|\n')
-    print('                     Continuity Iteration\n')
-    print('|--------------------------------------------------------------------------|\n')
+    pass  # 高频调用，已静默优化
 
 def ScalarTransportPrintIteration():
-    print('|==========================================================================|\n')
-    print('                     ScalarTransport Iteration \n' )
-    print('|--------------------------------------------------------------------------|\n')
+    pass  # 高频调用，已静默优化
 
 def cfdPrintIteration(theEquationName,iterationNumber,*args):
-    # print('|==========================================================================|\n')
-    if args:
-        iComponent=args[0]
-        print('       The %s equation Component part %d Iteration %d\n' %(theEquationName,iComponent,iterationNumber))
-    else:
-        print('       The %s equation Iteration %d\n' %(theEquationName,iterationNumber))
-    # print('|--------------------------------------------------------------------------|\n')
+    pass  # 高频调用，已静默优化
 
 def cfdPrintResidualsHeader(theEquationName,tolerance,maxIter,initRes,finalRes):
-    print('|--------------------------------------------------------------------------|\n')
-    print('|  Equation  |     Tolerance     |     Maxiter     | initialResidual | finalResidual |\n')
-    print('|--------------------------------------------------------------------------|\n')
-    print('|---The %s equation---Tol:%e---Max:%d---init:%e---final:%e----|\n' % (theEquationName,tolerance,maxIter,initRes,finalRes))
+    print('| %-12s | tol=%-8.1e | maxIter=%3d | init=%-10.2e | final=%-10.2e |' % (theEquationName,tolerance,maxIter,initRes,finalRes))
 
 
 def cfdGetFoamFileHeader(fieldFilePath):
@@ -695,36 +680,31 @@ def cfdWriteOpenFoamParaViewDatavtk(Region):
         vtk_file.write('ASCII\n')
         vtk_file.write('DATASET UNSTRUCTURED_GRID\n')
 
-        # 写入点数据
+        # 写入点数据（向量化：一次性写入所有点）
         points = Region.mesh.nodeCentroids
         vtk_file.write(f'POINTS {len(points)} float\n')
-        for point in points:
-            vtk_file.write(f'{point[0]} {point[1]} {point[2]}\n')
+        vtk_file.write('\n'.join(f'{p[0]} {p[1]} {p[2]}' for p in points) + '\n')
 
-        # 写入单元数据
+        # 写入单元数据（向量化）
         cells = Region.mesh.faceNodes
         vtk_file.write(f'CELLS {len(cells)} {len(cells) * (len(cells[0]) + 1)}\n')
-        for cell in cells:
-            vtk_file.write(f'{len(cell)} {" ".join(map(str, cell))}\n')
+        vtk_file.write('\n'.join(f'{len(c)} {" ".join(map(str, c))}' for c in cells) + '\n')
 
-        # 写入单元类型
+        # 写入单元类型（向量化：一次性字符串拼接）
         vtk_file.write(f'CELL_TYPES {len(cells)}\n')
-        for _ in cells:
-            vtk_file.write('10\n')  # VTK_TETRA
+        vtk_file.write('10\n' * len(cells))
 
-        # 写入速度场数据
+        # 写入速度场数据（向量化）
         velocity_field = Region.fluid['U'].phi
         vtk_file.write(f'POINT_DATA {len(velocity_field)}\n')
         vtk_file.write('VECTORS velocity float\n')
-        for velocity in velocity_field:
-            vtk_file.write(f'{velocity[0]} {velocity[1]} {velocity[2]}\n')
+        vtk_file.write('\n'.join(f'{v[0]} {v[1]} {v[2]}' for v in velocity_field) + '\n')
 
-        # 写入压强场数据
+        # 写入压强场数据（向量化）
         pressure_field = Region.fluid['p'].phi
         vtk_file.write('SCALARS pressure float 1\n')
         vtk_file.write('LOOKUP_TABLE default\n')
-        for pressure in pressure_field:
-            vtk_file.write(f'{pressure}\n')
+        vtk_file.write('\n'.join(str(p) for p in pressure_field) + '\n')
 
     print(f'VTK file written to {output_file}')
 
@@ -805,11 +785,14 @@ def write_field(location, file_path, field_name, field_data, field_type, dimensi
         file.write(f"internalField   nonuniform List<{field_type.split('vol')[1].split('Field')[0].lower()}> \n")
         file.write(f"{len(field_data)}\n")
         file.write("(\n")
+        # 向量化：批量格式化写入，避免逐元素for循环
+        lines = []
         for value in field_data:
             if len(value) == 3:
-                file.write(f"({value[0]} {value[1]} {value[2]})\n")
+                lines.append(f"({value[0]} {value[1]} {value[2]})")
             else:
-                file.write(f"{value[0]}\n")
+                lines.append(f"{value[0]}")
+        file.write('\n'.join(lines) + '\n')
         file.write(")\n;\n\n")
         file.write("boundaryField\n")
         file.write("{\n")
@@ -836,22 +819,6 @@ def write_field(location, file_path, field_name, field_data, field_type, dimensi
             file.write("    }\n")
         file.write("}\n")
         file.write("\n// ************************************************************************* //\n")
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
             
             
             

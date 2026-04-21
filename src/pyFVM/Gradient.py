@@ -171,15 +171,12 @@ class Gradient(DimensionChecked):
                 self.cfdTraceGradient(Region)
 
     def cfdTransposeComputeGradient(self,Region):
-        for iElement in range(Region.mesh.numberOfElements+Region.mesh.numberOfBElements):
-            #vectorized linear interpolation (same as Interpolate.interpolateFromElementsToFaces('linear'))
-            self.phi_TR.value[iElement,:,:]=np.transpose(self.phi.value[iElement,:,:])
-        # pass
+        # 向量化：一次性转置所有单元的梯度张量 (N,3,3) -> transpose on last two axes
+        self.phi_TR.value = np.transpose(self.phi.value, (0, 2, 1))
+
     def cfdTraceGradient(self,Region):
-        for iElement in range(Region.mesh.numberOfElements+Region.mesh.numberOfBElements):
-            #vectorized linear interpolation (same as Interpolate.interpolateFromElementsToFaces('linear'))
-            self.phi_Trace.value[iElement]=np.trace(self.phi.value[iElement,:,:])
-        # pass
+        # 向量化：一次性计算所有单元的梯度张量迹 (N,3,3) -> trace along last two axes -> (N,)
+        self.phi_Trace.value = np.einsum('ijj->i', self.phi.value)
 
     def cfdUpdateBoundaryGradient(self,Region):
         """ Prints the boundary type and then assigns the calculated phiGrad field to self.Region.fluid[self.phiName].phi

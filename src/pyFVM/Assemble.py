@@ -48,7 +48,7 @@ class Assemble:
 
         for iTerm in self.theEquation.terms:
             if iTerm == 'Transient':
-                print('Inside Transient Term')
+                # print('Inside Transient Term')
                 self.cfdZeroElementFLUXCoefficients(Region)
                 self.cfdAssembleTransientTerm(Region)
                 self.cfdAssembleIntoGlobalMatrixElementFluxes(Region) 
@@ -58,7 +58,7 @@ class Assemble:
                 pass
 
             elif iTerm == 'Convection':
-                print('Inside convection Term')
+                # print('Inside convection Term')
                 self.cfdZeroFaceFLUXCoefficients(Region)
                 self.cfdAssembleConvectionTerm(Region)
                 self.cfdAssembleDCSchemeTerm(Region)
@@ -69,19 +69,19 @@ class Assemble:
                 # self.cfdAssembleIntoGlobalMatrixElementFluxes(Region)
 
             elif iTerm == 'Diffusion':
-                print('Inside Diffusion Stress Term')
+                # print('Inside Diffusion Stress Term')
                 self.cfdZeroFaceFLUXCoefficients(Region)
                 self.cfdAssembleDiffusionTerm(Region)
                 self.cfdAssembleIntoGlobalMatrixFaceFluxes(Region)
 
             elif iTerm == 'Buoyancy':
-                print('Inside Buoyancy Term')
+                # print('Inside Buoyancy Term')
                 self.cfdZeroElementFLUXCoefficients(Region)
                 self.cfdAssembleMomentumBuoyancyTerm(Region)
                 self.cfdAssembleIntoGlobalMatrixElementFluxes(Region)
                 
             elif iTerm =='PressureGradient':
-                print('Inside PressureGradient Term')
+                # print('Inside PressureGradient Term')
                 self.cfdZeroElementFLUXCoefficients(Region)
                 self.cfdAssemblePressureGradientTerm(Region)
                 self.cfdAssembleIntoGlobalMatrixElementFluxes(Region)
@@ -183,12 +183,15 @@ class Assemble:
             np.add.at(Region.coefficients.ac, owners, FluxCf)
             np.subtract.at(Region.coefficients.ac, neighbours, FluxFf)
             np.add.at(Region.coefficients.ac, boundary_owners, FluxCf_b)
-            #非对角线元素组装
+            #非对角线元素组装 - 向量化版本：使用 flat anb 数组 + np.add.at
+            # anb[i] 是 _acnb_flat 的视图，修改 flat 自动同步
             own_anb_index = Region.mesh.upperAnbCoeffIndex[:numberOfInteriorFaces]
             nei_anb_index = Region.mesh.lowerAnbCoeffIndex[:numberOfInteriorFaces]
-            for i in range(numberOfInteriorFaces):
-                Region.coefficients.anb[owners[i]][own_anb_index[i]] += FluxFf[i]
-                Region.coefficients.anb[neighbours[i]][nei_anb_index[i]] -= FluxCf[i]
+            # 构建 flat 数组中的绝对偏移量
+            upper_flat_idx = Region.coefficients._acnb_offsets[owners] + own_anb_index
+            lower_flat_idx = Region.coefficients._acnb_offsets[neighbours] + nei_anb_index
+            np.add.at(Region.coefficients._acnb_flat, upper_flat_idx, FluxFf)
+            np.subtract.at(Region.coefficients._acnb_flat, lower_flat_idx, FluxCf)
 
         elif Region.MatrixFormat == 'ldu':
             """LDU格式的完全向量化组装"""
@@ -354,7 +357,7 @@ class Assemble:
                 io.cfdError('Convection term not implemented for compressible flow')
 
             elif iTerm == 'massDivergenceTerm':
-                print('Inside massDivergence Term')
+                # print('Inside massDivergence Term')
                 self.cfdZeroFaceFLUXCoefficients(Region)
                 self.cfdAssembleMassDivergenceTerm(Region)
                 if Region.cfdIsCompressible:
@@ -494,9 +497,8 @@ class Assemble:
         rho_b = tools.cfdGetSubArrayForBoundaryPatch('rho', iBPatch,Region)
         p_grad_b = tools.cfdGetGradientSubArrayForBoundaryPatch('p', iBPatch,Region)
         owners_b=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
-        p_grad_C=np.squeeze(Region.fluid['p'].phiGrad.phiGrad[owners_b])
-        # p_b = tools.cfdGetSubArrayForBoundaryPatch('p', iBPatch,Region)
-        # p = tools.cfdGetSubArrayForInterior('p',Region)
+        p_grad_C=np.squeeze(Region.fluid['p'].Grad.phi[owners_b,:,0])
+
         #   ---------
         #    STEP 1
         #   ---------
@@ -570,7 +572,7 @@ class Assemble:
         # p = tools.cfdGetSubArrayForInterior('p',Region)
         p_grad_b = tools.cfdGetGradientSubArrayForBoundaryPatch('p', iBPatch,Region)
         owners_b=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
-        p_grad_C=np.squeeze(Region.fluid['p'].phiGrad.phiGrad[owners_b])
+        p_grad_C=np.squeeze(Region.fluid['p'].Grad.phi[owners_b,:,0])
         #   ---------
         #    STEP 1
         #   ---------
@@ -675,7 +677,7 @@ class Assemble:
         local_FluxVf = np.squeeze(tools.cfdGetSubArrayForInterior('mdot_f',Region))-rho_f*mth.cfdDot(p_RhieChowValue,Region.fluid['DUSf'].phi[:theNumberOfInteriorFaces])#TODO check FluxVf
 
         if Region.pp_nonlinear_corrected:
-            Region.fluid['pprime'].phiGrad.cfdUpdateGradient(Region)
+            Region.fluid['pprime'].Grad.cfdUpdateGradient(Region)
             DUTf = Region.fluid['DUSf'].phi - Region.fluid['DUEf'].phi
             pp_RhieChowValue=tools.cfdRhieChowValue('pprime',Region)
             local_FluxVf += rho_f*mth.cfdDot(pp_RhieChowValue,DUTf[:theNumberOfInteriorFaces])
@@ -712,7 +714,7 @@ class Assemble:
         Returns:
             none
         """
-        print('Inside cfdAssembleTransientTerm')
+        # print('Inside cfdAssembleTransientTerm')
         theScheme = Region.dictionaries.fvSchemes['ddtSchemes']['default']
         if theScheme == 'Euler':
             self.assembleFirstOrderEulerTransientTerm(Region)

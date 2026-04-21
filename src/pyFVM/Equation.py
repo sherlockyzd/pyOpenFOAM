@@ -54,51 +54,36 @@ class Equation():
             maxResidual = max(abs(bc)/(ac*p_scale))
             rmsResidual = mth.cfdResidual(abs(bc)/(ac*p_scale),'RMS')
         else:
-            # % Other equations ...
-            # % Get info
+            # % Other equations ... (向量化实现)
             theNumberOfElements = Region.mesh.numberOfElements
-            volumes = Region.mesh.elementVolumes.value
-            # % Another approach which takes the transient term into consideration
+            volumes = Region.mesh.elementVolumes.value[:theNumberOfElements]
             if not Region.STEADY_STATE_RUN:
-                rho = Region.fluid['rho'].phi.value.copy()
+                rho_val = Region.fluid['rho'].phi.value[:theNumberOfElements]
+                # rho 可能是 (Ne,1) 或 (Ne,) 标量场，统一展平为 1D
+                rho = np.asarray(rho_val).ravel().copy()
                 if theEquationName== 'T':
                     try:
-                        Cp = Region.fluid['kappa'].phi.value.copy()
+                        Cp_val = Region.fluid['kappa'].phi.value[:theNumberOfElements]
+                        Cp = np.asarray(Cp_val).ravel().copy()
                         rho *=  Cp
                     except AttributeError:
                         pass
 
                 deltaT = Region.dictionaries.controlDict['deltaT']
-                theMaxResidualSquared = 0.
-                theMaxScaledResidual = 0
-                for iElement in range(theNumberOfElements):
-                    volume = volumes[iElement]
-                    local_ac = ac[iElement]
-                    if not Region.STEADY_STATE_RUN:
-                        at = volume*rho[iElement]/deltaT
-                        local_ac -= at
-                        if local_ac < 1e-6*at:
-                            local_ac = at
+                # 向量化：一次计算所有单元的 local_ac
+                local_ac = ac.copy()
+                at = volumes * rho / deltaT
+                local_ac -= at
+                # 防止 local_ac 过小（向量化条件赋值）
+                local_ac = np.where(local_ac < 1e-6 * at, at, local_ac)
 
-                    local_residual  = bc[iElement]
-                    local_residual /= local_ac*scale
-                    theMaxScaledResidual   = max(theMaxScaledResidual,abs(local_residual))
-                    theMaxResidualSquared +=  local_residual*local_residual
-
-                maxResidual = theMaxScaledResidual
-                rmsResidual = np.sqrt(theMaxResidualSquared/theNumberOfElements)   
+                local_residual = bc / (local_ac * scale)
+                maxResidual = np.max(np.abs(local_residual))
+                rmsResidual = np.sqrt(np.sum(local_residual ** 2) / theNumberOfElements)
             else:
-                theMaxResidualSquared = 0
-                theMaxScaledResidual = 0
-                for iElement in range(theNumberOfElements):
-                    local_residual = bc[iElement]
-                    local_residual = local_residual/(ac[iElement]*scale)
-  
-                    theMaxScaledResidual   = max(theMaxScaledResidual,abs(local_residual))
-                    theMaxResidualSquared += local_residual*local_residual
-   
-                maxResidual = theMaxScaledResidual
-                rmsResidual = np.sqrt(theMaxResidualSquared/theNumberOfElements)
+                local_residual = bc / (ac * scale)
+                maxResidual = np.max(np.abs(local_residual))
+                rmsResidual = np.sqrt(np.sum(local_residual ** 2) / theNumberOfElements)
 
         if len(args)==1:
             iComponent = args[0]

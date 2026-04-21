@@ -87,9 +87,10 @@ class Dimension:
         return Dimension(self.value * power)
     
     def __eq__(self, other)-> bool:
-        # if not isinstance(other, Dimension):
-        #     return False
-        return isinstance(other, Dimension) and np.allclose(self.value, other.value, atol=1e-10)
+        # 量纲是整数数组，用 array_equal 代替 allclose（快 5-10 倍）
+        if not isinstance(other, Dimension):
+            return False
+        return np.array_equal(self.value, other.value)
     
     def __str__(self) -> str:
         return self.__repr__()

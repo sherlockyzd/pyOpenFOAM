@@ -4,6 +4,19 @@ from config import ENABLE_DIMENSION_CHECK
 from cfdtool.dimensions import Dimension,dimless
 from typing import Callable, Any
 
+# === 高频量纲运算的内联快速路径（避免 Dimension 类方法调用开销） ===
+def _dim_eq_fast(d1: 'Dimension', d2: 'Dimension') -> bool:
+    """快速量纲相等判断（直接比较底层 numpy 数组）"""
+    return np.array_equal(d1._value, d2._value)
+
+def _dim_mul_fast(d1: 'Dimension', d2: 'Dimension') -> 'Dimension':
+    """快速量纲乘法（直接操作底层数组，避免 __mul__ 方法分发）"""
+    return Dimension(d1._value + d2._value)
+
+def _dim_div_fast(d1: 'Dimension', d2: 'Dimension') -> 'Dimension':
+    """快速量纲除法"""
+    return Dimension(d1._value - d2._value)
+
 class Quantity:
     """
     表示带有量纲的物理量。
@@ -97,23 +110,27 @@ class Quantity:
     def _apply_operation(self, other, op)-> 'Quantity':
         if isinstance(other, Quantity):
             # Add and subtract operations require identical dimensions
-            if op in (np.add, np.subtract):
-                self._check_dimension(other)
-                new_value = op(self.value, other.value)
-                return Quantity(new_value, self.dimension)
+            if op is np.add or op is np.subtract:
+                if ENABLE_DIMENSION_CHECK and not _dim_eq_fast(self.__dimension, other.__dimension):
+                    raise ValueError(
+                        f"无法与不同量纲的 Quantity 对象相加/相减：{self.dimension} 和 {other.dimension}。"
+                    )
+                return Quantity(op(self.__value, other.__value), self.__dimension, copy=False)
             # Multiplication and division allow different dimensions
-            elif op in (np.multiply, np.divide):
-                new_value = op(self.value, other.value)
-                new_dimension = self.dimension * other.dimension if op == np.multiply else self.dimension / other.dimension
-                return Quantity(new_value, new_dimension)
+            elif op is np.multiply:
+                return Quantity(op(self.__value, other.__value),
+                               _dim_mul_fast(self.__dimension, other.__dimension), copy=False)
+            elif op is np.divide:
+                return Quantity(op(self.__value, other.__value),
+                               _dim_div_fast(self.__dimension, other.__dimension), copy=False)
         elif isinstance(other, (int, float, np.ndarray)):
-            new_value = op(self.value, other)
-            if op in (np.add, np.subtract):
-                if ENABLE_DIMENSION_CHECK and self.dimension != dimless:
+            new_value = op(self.__value, other)
+            if op is np.add or op is np.subtract:
+                if ENABLE_DIMENSION_CHECK and not _dim_eq_fast(self.__dimension, dimless):
                     raise ValueError(f"Cannot add or subtract a scalar to a Quantity with dimensions: {self.dimension}")
-                return Quantity(new_value, self.dimension)
-            elif op in (np.multiply, np.divide):
-                return Quantity(new_value, self.dimension)
+                return Quantity(new_value, self.__dimension, copy=False)
+            elif op is np.multiply or op is np.divide:
+                return Quantity(new_value, self.__dimension, copy=False)
         else:
             raise TypeError("Operation is only supported between Quantity and scalar values.")
         # Ensure all code paths return a Quantity or raise an error

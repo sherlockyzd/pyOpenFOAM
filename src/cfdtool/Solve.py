@@ -10,16 +10,21 @@ def cfdSolveEquation(Region,theEquationName, iComponent):
     tolerance = Region.dictionaries.fvSolution['solvers'][theEquationName]['tolerance']
     relTol    = Region.dictionaries.fvSolution['solvers'][theEquationName]['relTol']
 
-    if solver in ['PCG','PETSc']:
+    if solver in ['PCG','PETSc','GAMG']:
         Region_csr_format(Region)
 
     if solver=='GAMG':
-        # Get GAMG settings
-        preconditioner = Region.dictionaries.fvSolution['solvers'].get(theEquationName, {}).get('preconditioner', None)
-        nPreSweeps     = Region.dictionaries.fvSolution['solvers'].get(theEquationName, {}).get('nPreSweeps', None)
-        nPostSweeps    = Region.dictionaries.fvSolution['solvers'].get(theEquationName, {}).get('nPostSweeps', None)
-        nFinestSweeps  = Region.dictionaries.fvSolution['solvers'].get(theEquationName, {}).get('nFinestSweeps', None)
-        [initRes, finalRes] = cfdApplyAMG(preconditioner,maxIter,tolerance,relTol,nPreSweeps,nPostSweeps,nFinestSweeps)
+        # GAMG: 使用 PETSc 的代数多重网格求解器
+        from cfdtool.PETScSolver import cfdSolvePETSc, PETSC_AVAILABLE
+        if PETSC_AVAILABLE:
+            petsc_solver_type = Region.dictionaries.fvSolution['solvers'][theEquationName].get('petsc_solver', 'cg')
+            petsc_preconditioner = Region.dictionaries.fvSolution['solvers'][theEquationName].get('preconditioner', 'gamg')
+            use_gpu = Region.dictionaries.fvSolution['solvers'][theEquationName].get('use_gpu', False)
+            [initRes, finalRes] = cfdSolvePETSc(Region.coefficients, maxIter=maxIter, tolerance=tolerance, relTol=relTol, solver_type=petsc_solver_type, preconditioner=petsc_preconditioner, use_gpu=use_gpu)
+            device_info = "GPU" if use_gpu else "CPU"
+            # print(f"GAMG/PETSc求解完成({device_info}): {petsc_solver_type} + {petsc_preconditioner}")  # 高频，已静默
+        else:
+            io.cfdError("GAMG求解需要PETSc支持，请安装 petsc4py 或改用其他求解器")
     elif solver=='smoothSolver':
         smoother = Region.dictionaries.fvSolution['solvers'][theEquationName]['smoother']
         [initRes, finalRes] = cfdSolveAlgebraicSystem(1,theEquationName,Region.coefficients,smoother,maxIter,tolerance,relTol)
@@ -37,7 +42,7 @@ def cfdSolveEquation(Region,theEquationName, iComponent):
             # use_gpu = True
             [initRes, finalRes] = cfdSolvePETSc(Region.coefficients,maxIter=maxIter,tolerance=tolerance, relTol=relTol,solver_type=petsc_solver_type,preconditioner=petsc_preconditioner,use_gpu=use_gpu)
             device_info = "GPU" if use_gpu else "CPU"
-            print(f"PETSc求解完成({device_info}): {petsc_solver_type} + {petsc_preconditioner}")
+            # print(f"PETSc求解完成({device_info}): {petsc_solver_type} + {petsc_preconditioner}")  # 高频，已静默
         else:
             io.cfdError("PETSc不可用，回退到PCG求解器")
             # preconditioner = Region.dictionaries.fvSolution['solvers'][theEquationName].get('preconditioner', 'ILU') 
@@ -109,7 +114,15 @@ def cfdSolveAlgebraicSystem(gridLevel,theEquationName,theCoefficients,smoother =
 
 
 def _solve_acnb_format(theCoefficients, smoother, maxIter, tolerance, relTol, initialResidual):
-    """ACNB格式的求解（原始方法）"""
+    """ACNB格式的求解
+
+    当 sparse_always=True（即 CSR 稀疏矩阵可用）时，使用 scipy 稀疏求解器替代
+    纯 Python 逐单元迭代，大幅提升性能。否则回退到原始 ACNB Python 循环。
+    """
+    # 优先使用 scipy 稀疏求解（如果 CSR 矩阵可用）
+    if getattr(theCoefficients, '_sparse_always', False):
+        return _solve_sparse_format(theCoefficients, smoother, maxIter, tolerance, relTol, initialResidual)
+
     ac = theCoefficients.ac
     anb = theCoefficients.anb
     bc = theCoefficients.bc
@@ -152,7 +165,15 @@ def _solve_acnb_format(theCoefficients, smoother, maxIter, tolerance, relTol, in
     # pass
 
 def _solve_ldu_format(theCoefficients, smoother, maxIter, tolerance, relTol, initialResidual):
-    """LDU格式的高效求解"""
+    """LDU格式的求解
+
+    当 sparse_always=True（即 CSR 稀疏矩阵可用）时，使用 scipy 稀疏求解器替代
+    纯 Python 逐单元迭代，大幅提升性能。否则回退到原始 LDU Python 循环。
+    """
+    # 优先使用 scipy 稀疏求解（如果 CSR 矩阵可用）
+    if getattr(theCoefficients, '_sparse_always', False):
+        return _solve_sparse_format(theCoefficients, smoother, maxIter, tolerance, relTol, initialResidual)
+
     diag = theCoefficients.Diag  # LDU格式中对角就是ac
     upper = theCoefficients.Upper
     lower = theCoefficients.Lower
@@ -171,7 +192,7 @@ def _solve_ldu_format(theCoefficients, smoother, maxIter, tolerance, relTol, ini
             if (finalResidual < relTol * initialResidual) and (finalResidual <tolerance):
                 break
 
-        print("LDU格式DILU求解完成")
+        pass  # LDU格式DILU求解完成（已静默）
 
     elif smoother in ['SOR', 'GaussSeidel', 'symGaussSeidel']:
         # LDU格式的优化GS/SOR
@@ -184,53 +205,79 @@ def _solve_ldu_format(theCoefficients, smoother, maxIter, tolerance, relTol, ini
             if (finalResidual < relTol * initialResidual) and (finalResidual <tolerance):
                 break
 
-        # 打印完成
-        print("LDU格式SOR求解完成")
+        # LDU格式SOR求解完成（已静默）
 
     theCoefficients.dphi = dphi
     return initialResidual, finalResidual
 
-def _solve_sparse_format(theCoefficients, smoother, maxIter, tolerance, relTol,initialResidual):
-    """CSR/COO格式的scipy求解"""
-    # 获取scipy稀疏矩阵
+def _solve_sparse_format(theCoefficients, smoother, maxIter, tolerance, relTol, initialResidual):
+    """CSR/COO格式的scipy高效求解
+
+    使用 scipy 的 Krylov 子空间方法（BICGSTAB/gmres）配合 ILU 预处理，
+    一次调用完成求解，充分利用 Krylov 子空间正交化加速收敛。
+    """
+    from scipy.sparse.linalg import spilu, LinearOperator, bicgstab, gmres, cg
+
+    # 获取scipy稀疏矩阵（CSR用于Krylov求解，CSC用于spilu预处理）
     A_sparse = theCoefficients.data_sparse_matrix_update()
+    A_csr = A_sparse.tocsr() if A_sparse.format != 'csr' else A_sparse
+    A_csc = A_sparse.tocsc() if A_sparse.format != 'csc' else A_sparse
     bc = theCoefficients.bc
     dphi = theCoefficients.dphi
 
+    # 构建 ILU 预处理器（使用CSC格式）
+    try:
+        ilu = spilu(A_csc, drop_tol=1e-4, fill_factor=10)
+        M = LinearOperator(shape=A_csr.shape, matvec=lambda x: ilu.solve(x))
+    except Exception:
+        M = None
+
+    # 选择求解器：DILU 用 bicgstab（动量方程非对称），SOR 用 gmres
     if smoother == 'DILU':
-        # 使用scipy的稀疏ILU
-        from scipy.sparse.linalg import spsolve, spilu, LinearOperator
+        solver_func = bicgstab
+    else:
+        solver_func = gmres
+
+    # 容差转换：OpenFOAM tolerance 是绝对容差 ||r||_2 < tolerance
+    # scipy 的 tol 是相对容差 ||r||_2 / ||b||_2 < tol
+    # 转换：scipy_tol = tolerance / ||b||_2
+    # 同时考虑 relTol：scipy_tol = max(relTol, tolerance/||b||_2)
+    norm_b = np.linalg.norm(bc)
+    if norm_b > 0:
+        abs_tol_as_rel = tolerance / norm_b
+    else:
+        abs_tol_as_rel = tolerance  # b 全零时退化为绝对容差
+    scipy_tol = max(relTol, abs_tol_as_rel) if relTol > 0 else abs_tol_as_rel
+
+    # scipy 1.14+ 改用 rtol 代替 tol，兼容两种接口
+    try:
+        dphi, info = solver_func(A_csr, bc, x0=dphi, rtol=scipy_tol,
+                                  maxiter=maxIter, M=M)
+    except TypeError:
+        # fallback for older scipy versions (参数名为 tol)
+        dphi, info = solver_func(A_csr, bc, x0=dphi, tol=scipy_tol,
+                                  maxiter=maxIter, M=M)
+    # 预处理失败时无预处理重试
+    if info != 0 and info > 0:
         try:
-            ilu = spilu(A_sparse)
-            M = LinearOperator(shape=A_sparse.shape, matvec=lambda x: ilu.solve(x))
+            dphi2, info2 = solver_func(A_csr, bc, x0=dphi, rtol=scipy_tol,
+                                        maxiter=maxIter)
+            if info2 == 0 or info2 < 0:
+                dphi, info = dphi2, info2
+        except TypeError:
+            try:
+                dphi2, info2 = solver_func(A_csr, bc, x0=dphi, tol=scipy_tol,
+                                            maxiter=maxIter)
+                if info2 == 0 or info2 < 0:
+                    dphi, info = dphi2, info2
+            except Exception:
+                pass
 
-            for iter in range(maxIter):
-                residual = bc - A_sparse @ dphi
-                z = ilu.solve(residual)
-                dphi += z
-                theCoefficients.dphi = dphi
-
-                residualsArray = theCoefficients.cfdComputeResidualsArray()
-                finalResidual = mth.cfdResidual(residualsArray)
-                if (finalResidual < relTol * initialResidual) and (finalResidual <tolerance):
-                    break
-        except:
-            # 回退到直接求解
-            dphi = spsolve(A_sparse, bc)
-            theCoefficients.dphi = dphi
-            finalResidual = mth.cfdResidual(bc - A_sparse @ dphi)
-
-    elif smoother in ['SOR', 'GaussSeidel', 'symGaussSeidel']:
-        # 使用scipy的迭代求解器
-        from scipy.sparse.linalg import cg, gmres
-        try:
-            dphi, info = cg(A_sparse, bc, x0=dphi, rtol=tolerance, maxiter=maxIter)
-            theCoefficients.dphi = dphi
-            finalResidual = mth.cfdResidual(bc - A_sparse @ dphi)
-        except:
-            dphi, info = gmres(A_sparse, bc, x0=dphi, rtol=tolerance, maxiter=maxIter)
-            theCoefficients.dphi = dphi
-            finalResidual = mth.cfdResidual(bc - A_sparse @ dphi)
+    # 更新解
+    theCoefficients.dphi = dphi
+    # 计算最终残差
+    residualsArray = theCoefficients.cfdComputeResidualsArray()
+    finalResidual = mth.cfdResidual(residualsArray)
 
     return initialResidual, finalResidual
 
@@ -450,22 +497,31 @@ def cfdSetupPreconditioner(A_sparse, preconditioner='ILU'):
         inv_diag = 1.0 / diag_A
         # Create a linear operator for the preconditioner
         return LinearOperator(shape=A_sparse.shape, matvec=lambda x: inv_diag*x)
-    elif preconditioner == 'DILU' or preconditioner == 'DIC':
-        # Diagonal Incomplete LU preconditioner
-        # Extract diagonal and off-diagonal parts
-        diag_A = A_sparse.diagonal()
-        # Check for zero or negative diagonal entries
-        if np.any(diag_A <= 0):
-            raise RuntimeError("DILU预处理器要求矩阵对角元素为正")
-        # For DILU, we approximate L and U using only diagonal terms
-        # This is a simplified approach where we use diagonal scaling
-        # More sophisticated DILU would involve partial factorization
-        
-        # Simple DILU: Use diagonal-based approximation
-        # L_diag = sqrt(diag), U_diag = sqrt(diag)
-        inv_sqrt = 1.0 / np.sqrt(diag_A)
-        
-        return LinearOperator(shape=A_sparse.shape, matvec=lambda x: inv_sqrt*(inv_sqrt*x))
+    elif preconditioner == 'DIC':
+        # DIC: 对称矩阵 → 使用 ILU(0) 作为近似
+        # scipy spilu 等价于不完全 LU，对于 SPD 矩阵退化为不完全 Cholesky
+        try:
+            A_csc = A_sparse.tocsc() if A_sparse.format != 'csc' else A_sparse
+            ilu = spilu(A_csc, drop_tol=1e-4, fill_factor=10)
+            return LinearOperator(shape=A_sparse.shape, matvec=lambda x: ilu.solve(x))
+        except Exception as e:
+            import warnings
+            warnings.warn(f"DIC(ILU) 分解失败: {e}，回退到 Jacobi")
+            diag_A = A_sparse.diagonal()
+            inv_diag = 1.0 / np.where(diag_A != 0, diag_A, 1e-30)
+            return LinearOperator(shape=A_sparse.shape, matvec=lambda x: inv_diag * x)
+
+    elif preconditioner == 'DILU':
+        # DILU: 非对称矩阵（如动量方程）→ 使用 ILU
+        try:
+            ilu = spilu(A_sparse, drop_tol=1e-4, fill_factor=10)
+            return LinearOperator(shape=A_sparse.shape, matvec=lambda x: ilu.solve(x))
+        except Exception as e:
+            import warnings
+            warnings.warn(f"DILU(ILU) 分解失败: {e}，回退到 Jacobi")
+            diag_A = A_sparse.diagonal()
+            inv_diag = 1.0 / np.where(diag_A != 0, diag_A, 1e-30)
+            return LinearOperator(shape=A_sparse.shape, matvec=lambda x: inv_diag * x)
 
     # elif preconditioner == 'DIC':
     #     # # Compute DIC preconditioner
@@ -496,7 +552,8 @@ PCG Solver
 def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'):
     # A_sparse=theCoefficients.assemble_sparse_matrix()
     A_sparse=theCoefficients.data_sparse_matrix_update()
-    theCoefficients.verify_matrix_properties()
+    # 注释掉 verify_matrix_properties：每次都算 Frobenius 范数太贵
+    # theCoefficients.verify_matrix_properties()
 
     r = theCoefficients.cfdComputeResidualsArray()
     initRes = mth.cfdResidual(r)
@@ -506,19 +563,35 @@ def cfdSolvePCG(theCoefficients, maxIter, tolerance, relTol,preconditioner='ILU'
     dphi = np.copy(theCoefficients.dphi)  # Initial guess
     bc = theCoefficients.bc
 
-    # Compute initial residual
-    # scipy>=1.11 changed ``cg`` keyword ``tol`` to ``rtol``
+    # 使用 spilu 预处理器
     M = cfdSetupPreconditioner(A_sparse, preconditioner)
-    from scipy.sparse.linalg import cg
+
+    # 容差转换：OpenFOAM tolerance 是绝对容差 ||r||_2 < tolerance
+    # scipy 的 rtol 是相对容差 ||r||_2 / ||b||_2 < rtol
+    norm_b = np.linalg.norm(bc)
+    if norm_b > 0:
+        abs_tol_as_rel = tolerance / norm_b
+    else:
+        abs_tol_as_rel = tolerance
+    scipy_rtol = max(relTol, abs_tol_as_rel) if relTol > 0 else abs_tol_as_rel
+
+    from scipy.sparse.linalg import cg, gmres
     try:
-        dphi, info = cg(A_sparse, bc, x0=dphi, rtol=tolerance,
+        dphi, info = cg(A_sparse, bc, x0=dphi, rtol=scipy_rtol,
                         maxiter=maxIter, M=M)
     except TypeError:
-        # fallback for older scipy versions
-        dphi, info = cg(A_sparse, bc, x0=dphi, tol=tolerance,
+        # fallback for older scipy versions (tol 旧版也是相对容差)
+        dphi, info = cg(A_sparse, bc, x0=dphi, tol=scipy_rtol,
                         maxiter=maxIter, M=M)
+    # cg 不收敛时 fallback 到 gmres（适用于非对称矩阵）
+    if info < 0:
+        try:
+            dphi, info = gmres(A_sparse, bc, x0=dphi, rtol=scipy_rtol,
+                              maxiter=maxIter, M=M)
+        except Exception:
+            pass
     if info == 0:
-        print("求解成功收敛")
+        pass  # 静默成功
     elif info > 0:
         print(f"在 {info} 次迭代后达到设定的收敛容限")
     else:
@@ -819,456 +892,3 @@ def cfdSolveILU_orig(theCoefficients,dc,rc):
     return dphi
 
 
-'''
------------------------------------------------------------
-AMG Solver
------------------------------------------------------------
-'''
-def cfdApplyAMG(preconditioner='DILU', maxIter=20, tolerance=1e-6, relTol=0.1, 
-                nPreSweeps=0, nPostSweeps=2, nFinestSweeps=2):
-    """
-    这段代码是一个基于代数多重网格（AMG）方法的求解框架。AMG 是一种用于求解大型稀疏线性系统的高效方法，特别适用于计算流体动力学（CFD）等领域。
-    cfdApplyAMG 是入口函数，控制整个求解流程。
-    cfdAgglomerate 和 cfdAgglomerateLevel 用于从细网格逐层构建粗网格。
-    cfdApplyVCycle 是 AMG 求解的核心，应用 V-Cycle 方法进行多层次求解。
-    cfdRestrict 和 cfdProlongate 实现残差的限制和解的延拓，分别用于转移残差到粗网格和将解从粗网格延拓到细网格。
-    cfdSetupCoefficients 和 cfdAssembleAgglomeratedLHS 负责初始化和计算各个层级的系数矩阵。
-    通过这些函数的协作，AMG 可以有效地加速稀疏线性系统的求解过程。
-    Solve using Geometric-Algebraic multi-grid solver.
-    Parameters:
-    preconditioner - 预处理器类型
-    max_iter - 最大迭代次数
-    tolerance - 绝对容差
-    rel_tol - 相对容差
-    n_pre_sweeps - 每次多重网格循环前的预平滑次数
-    n_post_sweeps - 每次多重网格循环后的后平滑次数
-    n_finest_sweeps - 在最精细网格上的迭代次数
-
-    Returns:
-    initial_residual - 初始残差
-    final_residual - 最终残差
-
-    功能: 
-    这是整个 AMG 求解流程的入口函数。它控制着整个代数多重网格求解过程的各个阶段，包括初始化、残差计算、循环控制和收敛判断。
-    参数:
-    preconditioner: 选择的预处理器类型，默认是 DILU。
-    maxIter: 最大迭代次数。
-    tolerance: 收敛的绝对容差。
-    relTol: 收敛的相对容差。
-    nPreSweeps: 预平滑的迭代次数。
-    nPostSweeps: 后平滑的迭代次数。
-    nFinestSweeps: 在最细网格上的迭代次数。
-    过程:
-    多重网格层级构建: 使用 cfdAgglomerate 构建从细网格到粗网格的层级结构。
-    初始残差计算: 计算初始残差，用于后续的收敛判断。
-    V-Cycle: 通过 V-Cycle 方法来进行多重网格求解。在每个循环中，通过多次迭代平滑误差，直到满足收敛条件或达到最大迭代次数。
-    """
-
-    # 默认设置
-    cycleType = 'V-Cycle'
-    maxCoarseLevels = 10
-
-    # 构建粗网格
-    maxLevels = cfdAgglomerate(maxCoarseLevels)
-
-    # 计算初始残差
-    theCoefficients = cfdGetCoefficients()
-    residualsArray = cfdComputeResidualsArray(theCoefficients)
-    initialResidual = sum(abs(residualsArray))
-    finalResidual = initialResidual
-
-    # 多重网格循环
-    if maxLevels <= 3:
-        for _ in range(maxIter):
-            finalResidual = cfdApplyVCycle(1, preconditioner, maxLevels, nPreSweeps, nPostSweeps, relTol, nFinestSweeps)
-            if finalResidual < max(relTol * initialResidual, tolerance):
-                break
-        return initialResidual, finalResidual
-
-    if cycleType == 'V-Cycle':
-        for _ in range(maxIter):
-            finalResidual = cfdApplyVCycle(1, preconditioner, maxLevels, nPreSweeps, nPostSweeps, relTol, nFinestSweeps)
-            if finalResidual < max(relTol * initialResidual, tolerance):
-                break
-
-    return initialResidual, finalResidual
-
-
-
-def cfdAgglomerate(maxCoarseLevels):
-    """
-    Build algebraic multigrid hierarchy.
-    功能: 
-        构建代数多重网格的层次结构，从细网格逐步聚合到粗网格。
-    过程:
-        逐级聚合: 从第一个层级开始，逐层聚合，调用 cfdAgglomerateLevel 生成更粗的网格。
-        构建粗网格方程: 使用 cfdAssembleAgglomeratedLHS 组装每个粗网格层级的线性方程系统。
-        判断停止条件: 如果聚合后的粗网格父节点数量少于一个阈值，则停止聚合。
-    """
-
-    minNumberOfParents = 5
-    iLevel = 1
-
-    while iLevel <= maxCoarseLevels:
-        iLevel += 1
-        theNumberOfParents = cfdAgglomerateLevel(iLevel)
-        cfdAssembleAgglomeratedLHS(iLevel)
-        if theNumberOfParents <= minNumberOfParents:
-            break
-
-    return iLevel
-
-
-def cfdApplyVCycle(gridLevel, preconditioner, maxLevels, nPreSweeps, nPostSweeps, relTol, nFinestSweeps):
-    """
-    Apply V-Cycle.
-    功能: 
-        实现 AMG 求解中的 V-Cycle，一个用于加速收敛的多重网格方法。
-    过程:
-        预平滑阶段: 在当前网格层级上应用预平滑方法（如 Gauss-Seidel），减少高频误差。
-        限制阶段: 将残差限制到更粗的网格层级。
-        粗网格求解: 在最粗网格上求解修正方程。
-        延拓阶段: 将粗网格上的解延拓到更细的网格上，并进行后平滑，减少低频误差。
-    """
-
-    # 限制阶段
-    while gridLevel < maxLevels:
-        # 预平滑
-        cfdSolveAlgebraicSystem(gridLevel, preconditioner, nPreSweeps)
-
-        # 限制残差
-        cfdRestrict(gridLevel)
-
-        # 更新层级
-        gridLevel += 1
-
-    # 在最粗网格上平滑
-    cfdSolveAlgebraicSystem(gridLevel, preconditioner, nPostSweeps)
-
-    # 延拓阶段
-    while gridLevel > 1:
-        if gridLevel == 2:
-            # 将修正延拓到更细的解
-            cfdProlongate(gridLevel)
-
-            # 最精细层级的后平滑
-            cfdSolveAlgebraicSystem(gridLevel - 1, preconditioner, nFinestSweeps)
-        else:
-            # 将修正延拓到更细的解
-            cfdProlongate(gridLevel)
-
-            # 后平滑
-            cfdSolveAlgebraicSystem(gridLevel - 1, preconditioner, nPostSweeps)
-
-        gridLevel -= 1
-
-    # 计算最终残差
-    theCoefficients = cfdGetCoefficients()
-    residualsArray = cfdComputeResidualsArray(theCoefficients)
-    finalResidual = sum(abs(residualsArray))
-
-    return finalResidual
-
-
-def cfdRestrict(gridLevel):
-    """
-    Restrict residuals from gridLevel to gridLevel+1.
-    功能: 
-        将当前网格层级的残差限制到更粗的网格层级，准备在粗网格上进行求解。
-    过程:
-        获取当前层级残差: 通过 cfdComputeResidualsArray 计算当前层级的残差。
-        更新粗网格 RHS: 使用 cfdUpdateRHS 将细网格的残差传递给粗网格的 RHS。
-    """
-
-    theCoefficients = cfdGetCoefficients(gridLevel)
-    residual = cfdComputeResidualsArray(theCoefficients)
-
-    cfdUpdateRHS(gridLevel + 1, residual)
-
-def cfdProlongate(gridLevel):
-    """
-    Prolongate to finer level.
-    功能: 
-        将粗网格上的解延拓到细网格，修正细网格的解。
-    过程:
-        延拓修正: 调用 cfdCorrectFinerLevelSolution，将粗网格层级的解修正延拓到细网格层级。
-    """
-    cfdCorrectFinerLevelSolution(gridLevel)
-
-def cfdCorrectFinerLevelSolution(gridLevel):
-    """
-    Prolongate correction to finer level.
-    功能:
-        将粗网格解的修正传递到细网格，修正细网格的解。
-    过程:
-        获取当前层级修正: 从粗网格层级获取修正向量 dphi。
-        更新细网格解: 根据粗网格的修正，更新细网格的解。
-        存储更新后的解: 将更新后的 dphi 存储到细网格层级。
-    """
-
-    theCoefficients = cfdGetCoefficients(gridLevel)
-    DPHI = theCoefficients['dphi']
-
-    theFinerLevelCoefficients = cfdGetCoefficients(gridLevel - 1)
-    dphi = theFinerLevelCoefficients['dphi']
-    theParents = theFinerLevelCoefficients['parents']
-    theNumberOfFineElements = theFinerLevelCoefficients['numberOfElements']
-
-    for iFineElement in range(theNumberOfFineElements):
-        iParent = theParents[iFineElement]
-        dphi[iFineElement] += DPHI[iParent]
-
-    # Store corrected correction
-    theFinerLevelCoefficients['dphi'] = dphi
-    cfdSetCoefficients(theFinerLevelCoefficients, gridLevel - 1)
-
-
-def cfdGetCoefficients(iLevel=1):
-    """
-    This function gets the coefficients from the data base.
-    获取指定层级的系数矩阵: 从 Region['coefficients'] 中提取指定层级的系数。
-    """
-    global Region
-    return Region['coefficients'][iLevel]
-
-def cfdAgglomerateLevel(iLevel):
-    """
-    Agglomerate level to construct coarser algebraic level.
-    功能: 在给定层级上构建更粗的网格层级，创建父子关系。
-    过程:
-        Step 1 聚合: 在细网格中找到未分配的元素，将它们聚合成父元素。
-        最后一步聚合: 处理孤立的元素，将它们聚合到父元素中。
-        更新连接性: 为粗网格层级创建连接性和尺寸信息。
-        设置系数: 使用 cfdSetupCoefficients 为粗网格层级设置初始系数。
-    """
-
-    # 获取信息
-    theCoefficients = cfdGetCoefficients(iLevel - 1)
-    theNumberOfFineElements = len(theCoefficients['ac'])
-
-    anb = theCoefficients['anb']
-    cconn = theCoefficients['cconn']
-    csize = theCoefficients['csize']
-
-    parents = np.zeros(theNumberOfFineElements, dtype=int)
-    maxAnb = np.zeros(theNumberOfFineElements)
-
-    for iElement in range(theNumberOfFineElements):
-        maxAnb[iElement] = max([-val for val in anb[iElement]])
-
-    iParent = 1
-
-    # Step 1 Agglomeration
-    for iSeed in range(theNumberOfFineElements):
-        if parents[iSeed] == 0:
-            parents[iSeed] = iParent
-            children = [iSeed]
-            for iNB_local in range(csize[iSeed]):
-                iNB = cconn[iSeed][iNB_local]
-                if parents[iNB] == 0:
-                    if (-anb[iSeed][iNB_local] / maxAnb[iSeed]) > 0.5:
-                        parents[iNB] = iParent
-                        children.append(iNB)
-
-            theNumberOfChildren = len(children)
-            children2 = []
-            for iChild_local in range(1, theNumberOfChildren):
-                iChild = children[iChild_local]
-                for iChildNB_local in range(csize[iChild]):
-                    iChildNB = cconn[iChild][iChildNB_local]
-                    if parents[iChildNB] == 0:
-                        if (-anb[iChild][iChildNB_local] / maxAnb[iChild]) > 0.5:
-                            parents[iChildNB] = iParent
-                            children2.append(iChildNB)
-
-            theNumberOfChildren += len(children2)
-            if theNumberOfChildren == 1:
-                parents[iSeed] = 0
-            else:
-                iParent += 1
-
-    # 最后一步 Agglomeration
-    for iOrphan in range(theNumberOfFineElements):
-        if parents[iOrphan] == 0:
-            strength = 0
-            for iNB_local in range(csize[iOrphan]):
-                iNB = cconn[iOrphan][iNB_local]
-                if parents[iNB] != 0:
-                    if strength < -anb[iOrphan][iNB_local] / maxAnb[iNB]:
-                        strength = -anb[iOrphan][iNB_local] / maxAnb[iNB]
-                        parents[iOrphan] = parents[iNB]
-
-            if parents[iOrphan] == 0:
-                parents[iOrphan] = iParent
-                iParent += 1
-                print('the orphan could not find a parent')
-
-    theNumberOfParents = iParent - 1
-    theCoefficients['parents'] = parents
-    cfdSetCoefficients(theCoefficients, iLevel - 1)
-
-    # setup connectivity and csize
-    theParentCConn = {i: [] for i in range(theNumberOfParents)}
-    for iElement in range(theNumberOfFineElements):
-        for iNB_local in range(csize[iElement]):
-            iNB = cconn[iElement][iNB_local]
-            if parents[iElement] != parents[iNB]:
-                if parents[iNB] not in theParentCConn[parents[iElement]]:
-                    theParentCConn[parents[iElement]].append(parents[iNB])
-
-    theParentCSize = {i: len(theParentCConn[i]) for i in range(theNumberOfParents)}
-
-    # Setup coefficients for coarser level
-    theParentCoefficients = cfdSetupCoefficients(theParentCConn, theParentCSize)
-    cfdSetCoefficients(theParentCoefficients, iLevel)
-
-    return theNumberOfParents
-
-def cfdSetupCoefficients(theCConn=None, theCSize=None):
-    """
-    This function sets up the coefficients.
-    功能: 
-        为当前层级设置和初始化各个系数矩阵。
-    过程:
-        默认设置: 如果没有提供 theCConn 和 theCSize，从网格中获取邻接元素索引并计算邻接元素数量。
-        初始化系数: 初始化所有系数列表，包括 ac, anb, bc, dphi 等。
-        返回系数字典: 将所有初始化后的系数存储在一个字典中，并返回。
-    """
-
-    # 默认设置
-    if theCConn is None:
-        theCConn = cfdGetElementNbIndices()
-        theCSize = [len(neighbours) for neighbours in theCConn]
-
-    theNumberOfElements = len(theCConn)
-
-    # 定义并初始化
-    ac = [0.0] * theNumberOfElements
-    ac_old = [0.0] * theNumberOfElements
-    bc = [0.0] * theNumberOfElements
-
-    anb = [np.zeros(size) for size in theCSize]
-
-    # dc & rc added to be used in ILU Solver
-    dc = [0.0] * theNumberOfElements
-    rc = [0.0] * theNumberOfElements
-
-    # Correction
-    dphi = [0.0] * theNumberOfElements
-
-    # 存储在字典结构中
-    theCoefficients = {
-        'ac': ac,
-        'ac_old': ac_old,
-        'bc': bc,
-        'anb': anb,
-        'dc': dc,
-        'rc': rc,
-        'dphi': dphi,
-        'cconn': theCConn,
-        'csize': theCSize,
-        'numberOfElements': theNumberOfElements
-    }
-
-    return theCoefficients
-
-def cfdGetElementNbIndices():
-    """
-    This function retrieves the element neighbor indices.
-    功能: 
-        获取每个元素的邻接元素索引列表，用于后续计算。
-    过程:
-        从全局变量中获取邻接元素索引: 通过 Region['mesh']['elementNeighbours'] 获取每个元素的邻接元素。
-    """
-
-    global Region
-
-    # 获取网格中每个元素的邻接元素索引
-    elementNbIndices = Region.mesh['elementNeighbours']
-
-    return elementNbIndices
-
-
-def cfdAssembleAgglomeratedLHS(iLevel):
-    """
-    Calculate coarse level's LHS coefficients (ac, anb, etc).
-    功能: 
-        为粗网格层级计算左侧系数（ac, anb 等）。
-    过程:
-        聚合系数: 将细网格的系数聚合到粗网格上，以计算粗网格的 ac 和 anb。
-        存储: 将计算结果存储到粗网格层级中。
-    """
-
-    # 获取信息
-    theCoefficients = cfdGetCoefficients(iLevel - 1)
-    parents = theCoefficients['parents']
-    ac = theCoefficients['ac']
-    anb = theCoefficients['anb']
-    cconn = theCoefficients['cconn']
-    csize = theCoefficients['csize']
-
-    theParentCoefficients = cfdGetCoefficients(iLevel)
-    AC = theParentCoefficients['ac']
-    ANB = theParentCoefficients['anb']
-    CCONN = theParentCoefficients['cconn']
-
-    theNumberOfFineElements = theCoefficients['numberOfElements']
-    for iElement in range(theNumberOfFineElements):
-        iParent = parents[iElement]
-        AC[iParent] += ac[iElement]
-        theNumberOfNeighbours = csize[iElement]
-        for iNB_local in range(theNumberOfNeighbours):
-            iNB = cconn[iElement][iNB_local]
-            iNBParent = parents[iNB]
-            if iNBParent == iParent:
-                AC[iParent] += anb[iElement][iNB_local]
-            else:
-                iNBParent_local = CCONN[iParent].index(iNBParent)
-                ANB[iParent][iNBParent_local] += anb[iElement][iNB_local]
-
-    # Store
-    theParentCoefficients['ac'] = AC
-    theParentCoefficients['anb'] = ANB
-    theParentCoefficients['cconn'] = CCONN
-
-    cfdSetCoefficients(theParentCoefficients, iLevel)
-
-def cfdUpdateRHS(gridLevel, residual):
-    """
-    Calculate coarse level's RHS coefficients (bc).
-    功能: 
-        计算粗网格层级的右侧系数 bc，即残差的聚合。
-    过程:
-        获取细网格信息: 获取细网格层级的残差和父子关系。
-        累加残差: 将细网格层级的残差累加到相应的粗网格父节点上。
-        存储粗网格 RHS: 将计算的 bc 存储到粗网格层级。
-    """
-
-    # 获取细网格层级的信息
-    theCoefficients = cfdGetCoefficients(gridLevel - 1)
-    theParents = theCoefficients['parents']
-    theNumberOfElements = theCoefficients['numberOfElements']
-
-    # 获取粗网格层级的信息
-    theCoarseLevelCoefficients = cfdGetCoefficients(gridLevel)
-    theNumberOfCoarseElements = theCoarseLevelCoefficients['numberOfElements']
-
-    # 初始化粗网格层级的 RHS 系数 bc
-    BC = np.zeros(theNumberOfCoarseElements)
-
-    # 将细网格的残差累加到相应的粗网格父节点上
-    for iFineElement in range(theNumberOfElements):
-        iParent = theParents[iFineElement]
-        BC[iParent] += residual[iFineElement]
-
-    # 存储粗网格层级的 RHS 系数
-    theCoarseLevelCoefficients['bc'] = BC
-    cfdSetCoefficients(theCoarseLevelCoefficients, gridLevel)
-
-def cfdSetCoefficients(coefficients, iLevel):
-    """
-    Set the coefficients for a specific grid level in the global Region.
-    存储系数: 将传递进来的 coefficients 字典存储到 Region 的相应层级中。
-    """
-    global Region
-    Region['coefficients'][iLevel] = coefficients
