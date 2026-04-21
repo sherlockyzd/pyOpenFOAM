@@ -125,7 +125,7 @@ pyOpenFOAM/
 
 ### 许可证
 
-[MIT License](LICENSE) © 2026 Yu Zhengdong
+[MIT License](LICENSE)
 
 ---
 
@@ -173,4 +173,4 @@ conda activate pyOF
 
 ### License
 
-[MIT License](LICENSE) © 2026 Yu Zhengdong
+[MIT License](LICENSE)
