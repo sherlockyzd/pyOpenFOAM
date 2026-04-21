@@ -520,7 +520,7 @@ class FoamDictionaries():
             fieldFilePath=os.path.join(Region.caseDirectoryPath, Region.timeDirectory, fieldName)
             header=io.cfdGetFoamFileHeader(fieldFilePath)
             dimensions=np.int8(io.cfdGetKeyValue('dimensions','dimensions',fieldFilePath)[2])
-            if fieldName=='p':#OpenFoam里压强单位除以了密度，这里要乘回来
+            if fieldName=='p' and dimensions[0]==0:#OpenFoam里压强单位除以了密度，这里要乘回来（仅当M指数为0即运动压力时）
                 dimensions[0]+=1
                 dimensions[1]-=3
             Region.fluid[fieldName]=field.Field(Region,fieldName,header['class'],dimensions)                      
