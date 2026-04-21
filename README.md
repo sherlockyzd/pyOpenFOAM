@@ -129,26 +129,9 @@ case.RunCase()
 
 | 算例 | 类型 | 网格 | 残差收敛 |
 |:---:|:---:|:---:|:---:|
-| `cavity` | 不可压缩流 | 结构化 | <img src="https://img.shields.io/badge/cavity-~6s-brightgreen" alt="cavity"/> |
-| `elbow` | 不可压缩流 | 非结构化 | <img src="https://img.shields.io/badge/elbow-converged-blue" alt="elbow"/> |
-| `flange` | 传热 | 非结构化 | <img src="https://img.shields.io/badge/flange-converged-blue" alt="flange"/> |
-
-<details>
-<summary><b>📊 查看残差收敛曲线</b></summary>
-
-**Cavity** — 顶盖驱动方腔流
-
-![cavity residual](example/cavity/residualHistory.png)
-
-**Elbow** — 90° 弯管流动
-
-![elbow residual](example/elbow/residualHistory.png)
-
-**Flange** — 法兰盘热传导
-
-![flange residual](example/flange/residualHistory.png)
-
-</details>
+| `cavity` | 不可压缩流 | 结构化 | <img src="example/cavity/residualHistory.png" width="180"/> |
+| `elbow` | 不可压缩流 | 非结构化 | <img src="example/elbow/residualHistory.png" width="180"/> |
+| `flange` | 传热 | 非结构化 | <img src="example/flange/residualHistory.png" width="180"/> |
 
 ---
 
@@ -256,20 +239,11 @@ cfdBackend = 'numpy'   # Default
 
 ### 🧪 Example Cases
 
-| Case | Type | Mesh | Notes |
-|:---:|:---:|:---:|---|
-| `cavity` | Incompressible | Structured | Lid-driven cavity benchmark |
-| `elbow` | Incompressible | Unstructured | 90-degree pipe elbow |
-| `flange` | Heat transfer | Unstructured | Thermal conduction |
-
-<details>
-<summary>📊 Residual Convergence</summary>
-
-![cavity](example/cavity/residualHistory.png)
-![elbow](example/elbow/residualHistory.png)
-![flange](example/flange/residualHistory.png)
-
-</details>
+| Case | Type | Mesh | Residual |
+|:---:|:---:|:---:|:---:|
+| `cavity` | Incompressible | Structured | <img src="example/cavity/residualHistory.png" width="180"/> |
+| `elbow` | Incompressible | Unstructured | <img src="example/elbow/residualHistory.png" width="180"/> |
+| `flange` | Heat transfer | Unstructured | <img src="example/flange/residualHistory.png" width="180"/> |
 
 ### 📁 Structure
 
