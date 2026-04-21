@@ -1,6 +1,7 @@
 # import os
 import numpy as np
 import cfdtool.Math as mth
+from cfdtool.backend import be
 # import pyFVM.Coefficients as coefficients
 # import pyFVM.Solve as solve
 # import pyFVM.Scalar as scalar
@@ -56,14 +57,14 @@ class Equation():
         else:
             # % Other equations ... (向量化实现)
             theNumberOfElements = Region.mesh.numberOfElements
-            volumes = Region.mesh.elementVolumes.value[:theNumberOfElements]
+            volumes = Region.mesh.elementVolumes[:theNumberOfElements]
             if not Region.STEADY_STATE_RUN:
-                rho_val = Region.fluid['rho'].phi.value[:theNumberOfElements]
+                rho_val = Region.fluid['rho'].phi[:theNumberOfElements]
                 # rho 可能是 (Ne,1) 或 (Ne,) 标量场，统一展平为 1D
                 rho = np.asarray(rho_val).ravel().copy()
                 if theEquationName== 'T':
                     try:
-                        Cp_val = Region.fluid['kappa'].phi.value[:theNumberOfElements]
+                        Cp_val = Region.fluid['kappa'].phi[:theNumberOfElements]
                         Cp = np.asarray(Cp_val).ravel().copy()
                         rho *=  Cp
                     except AttributeError:
@@ -71,11 +72,11 @@ class Equation():
 
                 deltaT = Region.dictionaries.controlDict['deltaT']
                 # 向量化：一次计算所有单元的 local_ac
-                local_ac = ac.copy()
+                local_ac = be.copy(ac)
                 at = volumes * rho / deltaT
-                local_ac -= at
+                local_ac = local_ac - at
                 # 防止 local_ac 过小（向量化条件赋值）
-                local_ac = np.where(local_ac < 1e-6 * at, at, local_ac)
+                local_ac = be.where(local_ac < 1e-6 * at, at, local_ac)
 
                 local_residual = bc / (local_ac * scale)
                 maxResidual = np.max(np.abs(local_residual))

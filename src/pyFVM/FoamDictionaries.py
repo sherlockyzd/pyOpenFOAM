@@ -4,6 +4,7 @@ import cfdtool.IO as io
 import pyFVM.Field as field
 # import pyFVM.Math as mth
 import numpy as np
+from cfdtool.backend import be
 # import pyFVM.Scalar as Scalar
 
 class FoamDictionaries():
@@ -534,19 +535,19 @@ class FoamDictionaries():
             if valueType == 'uniform':
                 value_str = internalField[2]
                 if Region.fluid[fieldName].type=='volScalarField':
-                    Region.fluid[fieldName].phi.value[:theNumberOfElements] = value_str
+                    Region.fluid[fieldName].phi = be.set_at(Region.fluid[fieldName].phi, slice(None, theNumberOfElements), value_str)
                         
                 elif Region.fluid[fieldName].type=='volVectorField':
-                    Region.fluid[fieldName].phi.value[:theNumberOfElements] = np.array(value_str)
+                    Region.fluid[fieldName].phi = be.set_at(Region.fluid[fieldName].phi, slice(None, theNumberOfElements), np.array(value_str))
 
             elif valueType == 'nonuniform':
                 # Read nonuniform list from field file
                 nonuniform_data = io.cfdReadNonuniformList(fieldFilePath, 'internalField', theNumberOfElements)
                 if Region.fluid[fieldName].type == 'volScalarField':
                     data_1d = nonuniform_data[:theNumberOfElements].flatten()
-                    Region.fluid[fieldName].phi.value[:theNumberOfElements] = data_1d.reshape(Region.fluid[fieldName].phi.value[:theNumberOfElements].shape)
+                    Region.fluid[fieldName].phi = be.set_at(Region.fluid[fieldName].phi, slice(None, theNumberOfElements), data_1d.reshape(Region.fluid[fieldName].phi[:theNumberOfElements].shape))
                 elif Region.fluid[fieldName].type == 'volVectorField':
-                    Region.fluid[fieldName].phi.value[:theNumberOfElements] = nonuniform_data[:theNumberOfElements]
+                    Region.fluid[fieldName].phi = be.set_at(Region.fluid[fieldName].phi, slice(None, theNumberOfElements), nonuniform_data[:theNumberOfElements])
             # del(valueType)#防止内部的值对以下边界的误判！！！
                 
             for iBPatch, values in Region.mesh.cfdBoundaryPatchesArray.items():          
@@ -562,9 +563,9 @@ class FoamDictionaries():
                     valueType, boundaryValue = io.cfdReadUniformVolVectorFieldValue(boundaryValueDict)
                     if valueType == 'uniform':
                         if Region.fluid[fieldName].type in ['volScalarField', 'surfaceScalarField']:
-                            Region.fluid[fieldName].phi.value[iElementStart:iElementEnd+1] = boundaryValue
+                            Region.fluid[fieldName].phi = be.set_at(Region.fluid[fieldName].phi, slice(iElementStart, iElementEnd+1), boundaryValue)
                         elif Region.fluid[fieldName].type in ['volVectorField', 'surfaceVectorField']:
-                            Region.fluid[fieldName].phi.value[iElementStart:iElementEnd+1] = np.array(boundaryValue)
+                            Region.fluid[fieldName].phi = be.set_at(Region.fluid[fieldName].phi, slice(iElementStart, iElementEnd+1), np.array(boundaryValue))
                     else:
                         io.cfdError("Error: Oops, code cannot yet handle nonuniform boundary conditions. Not continuing any further ... apply uniform b.c.'s to continue")
                 else:
@@ -573,14 +574,14 @@ class FoamDictionaries():
                     if boundaryType in ['noSlip', 'empty']:
                         boundaryValue = 0 if Region.fluid[fieldName].type in ['volScalarField', 'surfaceScalarField'] else [0, 0, 0]
                     elif boundaryType == 'zeroGradient':
-                        boundaryValue = Region.fluid[fieldName].phi.value[owners_b]
-                  
+                        boundaryValue = Region.fluid[fieldName].phi[owners_b]
+
                     else:
                         io.cfdError(f"Warning: {fieldName} field's {iBPatch} boundary lacks 'value' entry.")
                     if Region.fluid[fieldName].type in ['volScalarField', 'surfaceScalarField']:
-                        Region.fluid[fieldName].phi.value[iElementStart:iElementEnd+1] = boundaryValue
+                        Region.fluid[fieldName].phi = be.set_at(Region.fluid[fieldName].phi, slice(iElementStart, iElementEnd+1), boundaryValue)
                     elif Region.fluid[fieldName].type in ['volVectorField', 'surfaceVectorField']:
-                        Region.fluid[fieldName].phi.value[iElementStart:iElementEnd+1] = np.array(boundaryValue)
+                        Region.fluid[fieldName].phi = be.set_at(Region.fluid[fieldName].phi, slice(iElementStart, iElementEnd+1), np.array(boundaryValue))
 
 
                 Region.fluid[fieldName].boundaryPatchRef[iBPatch] = {
@@ -852,7 +853,7 @@ class FoamDictionaries():
                     keyValue = float(transportDicts[iKey][7])
                     Region.fluid[iKey]=field.Field(Region,iKey,'volScalarField',transportDicts[iKey][0:7])
                     # Region.fluid[iKey].dimensions=transportDicts[iKey][0:7]  
-                    Region.fluid[iKey].phi.value.fill(keyValue)
+                    Region.fluid[iKey].phi = be.full_like(Region.fluid[iKey].phi, keyValue)
                     # numberOfBPatches=int(self.Region.mesh.numberOfBoundaryPatches)
                     # for iPatch in range(0,numberOfBPatches):
                     boundaryPatch['value'] = keyValue
@@ -881,7 +882,7 @@ class FoamDictionaries():
             
             if not 'mu' in transportKeys:
                 if 'nu' in transportKeys and 'rho' in transportKeys:
-                    dimensions_mu=Region.fluid['nu'].phi.dimension*Region.fluid['rho'].phi.dimension
+                    dimensions_mu=Region.fluid['nu'].dimension*Region.fluid['rho'].dimension
                     Region.fluid['mu']=field.Field(Region,'mu','volScalarField',dimensions_mu)
                     Region.fluid['mu'].phi=Region.fluid['nu'].phi*Region.fluid['rho'].phi
                     boundaryPatch={}

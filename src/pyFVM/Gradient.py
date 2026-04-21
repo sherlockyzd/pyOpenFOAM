@@ -1,7 +1,7 @@
 import numpy as np
 import cfdtool.Math as mth
 import cfdtool.IO as io
-from cfdtool.quantities import Quantity as Q_
+from cfdtool.backend import be
 # import cfdtool.dimensions as dm
 
 from cfdtool.base import DimensionChecked
@@ -73,30 +73,33 @@ class Gradient(DimensionChecked):
             self.theNumberOfComponents=1
         self.iFaces=Region.mesh.numberOfInteriorFaces
         # 复制 dimensions 对象，确保可修改
-        dim = Region.fluid[phiName].phi.dimension.grad()
+        self._dim = Region.fluid[phiName].dimension.grad()
         self.expected_dimensions = {
-            'phi': dim,
-            'phi_TR': dim,
-            'phi_Trace':dim,
+            'phi': self._dim,
+            'phi_TR': self._dim,
+            'phi_Trace':self._dim,
         }
         # 创建 Quantity 对象
-        self.phi=Q_(np.zeros((Region.mesh.numberOfElements+Region.mesh.numberOfBElements,3,self.theNumberOfComponents)),dim)
+        self.phi=be.zeros((Region.mesh.numberOfElements+Region.mesh.numberOfBElements,3,self.theNumberOfComponents))
         if self.phiName=='U':
-            self.phi_TR=self.phi.copy()
+            self.phi_TR=be.copy(self.phi)
             if Region.cfdIsCompressible:
-                self.phi_Trace=Q_(np.zeros((Region.mesh.numberOfElements+Region.mesh.numberOfBElements)),dim)
+                self.phi_Trace=be.zeros((Region.mesh.numberOfElements+Region.mesh.numberOfBElements))
             
         # self.cfdComputeGradientGaussLinear0(Region)
         self.cfdUpdateGradient(Region)
-            
 
+    @property
+    def dimension(self):
+        """返回梯度场的维度（Dimension 对象）。"""
+        return self._dim
 
     def cfdUpdateGradient(self,Region):
         # %==========================================================================
         # % Routine Description:
         # %   This function updates gradient of the field
         # %--------------------------------------------------------------------------
-        self.phi.value.fill(0.0)  # Reset the gradient field to zero
+        self.phi = be.zeros_like(self.phi)  # Reset the gradient field to zero
         gradSchemes = Region.dictionaries.fvSchemes['gradSchemes']['default']
         if gradSchemes=='Gauss linear':
             self.cfdComputeGradientGaussLinear0(Region)
@@ -140,29 +143,37 @@ class Gradient(DimensionChecked):
         `cfdComputeGradientGaussLinear0`方法在CFD模拟中是计算梯度的关键步骤，它为求解流体动力学方程提供了必要的空间导数信息。通过这种方法，可以获取场在网格质心处的梯度，这对于理解和模拟流体现象的局部变化非常重要。
         """
         # phi_f=Q_(np.zeros((self.iFaces,self.theNumberOfComponents)),Region.fluid[self.phiName].phi.dimension)
+        self.phi = be.zeros_like(self.phi)  # Reset the gradient field to zero
+        phi_val = self.phi  # 直接操作底层 ndarray，避免 Quantity 包装开销
+        volumes = Region.mesh.elementVolumes
+        Sf = Region.mesh.interiorFaceSf  # interiorFaceSf 是 Quantity（faceSf 切片）
+        g_f = Region.mesh.interiorFaceWeights  # interiorFaceWeights 是纯 ndarray（faceWeights 切片）
+        Sf_b = Region.mesh.Sf_b  # Sf_b 是 Quantity
         owners=Region.mesh.interiorFaceOwners
         neighbours=Region.mesh.interiorFaceNeighbours
         owners_b=Region.mesh.owners_b
+        # 获取场值的底层 ndarray，避免循环内反复触发 Quantity.__getitem__
+        phi_field_val = Region.fluid[self.phiName].phi
         #face contribution, treats vectors as three scalars (u,v,w)
         for iComponent in range(self.theNumberOfComponents):
             #vectorized linear interpolation (same as Interpolate.interpolateFromElementsToFaces('linear'))
-            phi=Region.fluid[self.phiName].phi[:,iComponent]
+            phi=phi_field_val[:,iComponent]
             # interior face contribution
-            phi_f=Region.mesh.interiorFaceWeights*phi[owners] +\
-                (1.0-Region.mesh.interiorFaceWeights)*phi[neighbours]
+            phi_f=g_f*phi[owners] + (1.0-g_f)*phi[neighbours]
             # interior face contribution
-            phi_f_Sf=phi_f[:,np.newaxis]*Region.mesh.interiorFaceSf# phi_f*Sf   
+            phi_f_Sf=phi_f[:,np.newaxis]*Sf# phi_f*Sf   
             #accumlator of phi_f*Sf for the owner centroid of the face  
-            np.add.at(self.phi[:,:,iComponent],owners,phi_f_Sf/Region.mesh.elementVolumes[owners,np.newaxis])
+            #   用局部变量避免 self.phi 切片的不可变语义问题
+            comp = self.phi[:,:,iComponent]
+            comp = be.add_at(comp, owners, phi_f_Sf/volumes[owners,np.newaxis])
             #accumlator of phi_f*Sf for the neighbour centroid of the face
-            np.add.at(self.phi[:,:,iComponent],neighbours,-phi_f_Sf/Region.mesh.elementVolumes[neighbours,np.newaxis])
-            # self.phi[neighbours,:,iComponent] -=phi_f_Sf/Region.mesh.elementVolumes[neighbours,np.newaxis]
+            comp = be.add_at(comp, neighbours, -phi_f_Sf/volumes[neighbours,np.newaxis])
             # Boundary face contributions
-            phi_b=Region.fluid[self.phiName].phi[Region.mesh.iBElements,iComponent]
-            np.add.at(self.phi[:,:,iComponent],owners_b,phi_b[:,np.newaxis]*Region.mesh.Sf_b/Region.mesh.elementVolumes[owners_b,np.newaxis])# phi_b*Sf_b
-            # self.phi[owners_b,:,iComponent] += phi_b[:,np.newaxis]*Region.mesh.Sf_b/Region.mesh.elementVolumes[owners_b,np.newaxis]# phi_b*Sf_b
+            phi_b=phi_field_val[Region.mesh.iBElements,iComponent]
+            comp = be.add_at(comp, owners_b, phi_b[:,np.newaxis]*Sf_b/volumes[owners_b,np.newaxis])
+            self.phi = be.set_at(self.phi, (slice(None), slice(None), iComponent), comp)
         
-        self.phi.value[Region.mesh.iBElements,:,:] = self.phi.value[owners_b,:,:]
+        self.phi = be.set_at(self.phi, (Region.mesh.iBElements, slice(None), slice(None)), self.phi[owners_b,:,:])
         
         self.cfdUpdateBoundaryGradient(Region)
         if self.phiName=='U':
@@ -172,11 +183,11 @@ class Gradient(DimensionChecked):
 
     def cfdTransposeComputeGradient(self,Region):
         # 向量化：一次性转置所有单元的梯度张量 (N,3,3) -> transpose on last two axes
-        self.phi_TR.value = np.transpose(self.phi.value, (0, 2, 1))
+        self.phi_TR = be.transpose(self.phi, (0, 2, 1))
 
     def cfdTraceGradient(self,Region):
         # 向量化：一次性计算所有单元的梯度张量迹 (N,3,3) -> trace along last two axes -> (N,)
-        self.phi_Trace.value = np.einsum('ijj->i', self.phi.value)
+        self.phi_Trace = be.einsum('ijj->i', self.phi)
 
     def cfdUpdateBoundaryGradient(self,Region):
         """ Prints the boundary type and then assigns the calculated phiGrad field to self.Region.fluid[self.phiName].phi
@@ -202,16 +213,17 @@ class Gradient(DimensionChecked):
         iBElements=Region.mesh.cfdBoundaryPatchesArray[patch]['iBElements']
         numberOfBFaces = Region.mesh.cfdBoundaryPatchesArray[patch]['numberOfBFaces']
         startBFace = Region.mesh.cfdBoundaryPatchesArray[patch]['startFaceIndex']
-        grad_b=np.zeros((numberOfBFaces, 3,self.theNumberOfComponents))
-        dCf = Region.mesh.faceCF[startBFace: startBFace + numberOfBFaces].value
+        grad_b=be.zeros((numberOfBFaces, 3,self.theNumberOfComponents))
+        dCf = Region.mesh.faceCF[startBFace: startBFace + numberOfBFaces]
         e = dCf / mth.cfdMag(dCf)[:, np.newaxis]
         for iComponent in range(self.theNumberOfComponents):    
             #保留切向分量，再考虑边界面的相邻单元的梯度计算 书籍《The Finite Volume Method in Computational Fluid Dynamics》Page 289页
-            grad_b[:numberOfBFaces,:,iComponent]=self.phi.value[owners_b,:,iComponent]\
-                + ((Region.fluid[self.phiName].phi.value[iBElements,iComponent] 
-                    - Region.fluid[self.phiName].phi.value[owners_b,iComponent])/mth.cfdMag(dCf)
-                    -mth.cfdDot(self.phi.value[owners_b,:,iComponent],e))[:,np.newaxis]*e        
-        self.phi.value[iBElements,:,:]=grad_b
+            comp_val = self.phi[owners_b,:,iComponent]\
+                + ((Region.fluid[self.phiName].phi[iBElements,iComponent] 
+                    - Region.fluid[self.phiName].phi[owners_b,iComponent])/mth.cfdMag(dCf)
+                    -mth.cfdDot(self.phi[owners_b,:,iComponent],e))[:,np.newaxis]*e   
+            grad_b = be.set_at(grad_b, (slice(None, numberOfBFaces), slice(None), iComponent), comp_val)     
+        self.phi = be.set_at(self.phi, (iBElements, slice(None), slice(None)), grad_b)
 
     def updateInletGradients(self,Region,patch):
         '''

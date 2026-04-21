@@ -2,8 +2,8 @@ import numpy as np
 import cfdtool.IO as io
 import cfdtool.Math as mth
 import cfdtool.Interpolate as interp
+from cfdtool.backend import be
 import pyFVM.cfdGetTools as tools
-from cfdtool.quantities import Quantity as Q_
 import cfdtool.dimensions as dm
 
 class Assemble:
@@ -14,9 +14,12 @@ class Assemble:
         ## The instance of Equation stored in the self.region.model dictionary
         self.theEquation=Region.model.equations[self.theEquationName]
         self.CoffeDim=self.theEquation.CoffeDim
-        self.Dim=Region.fluid[self.theEquationName].phi.dimension*self.CoffeDim
+        self.Dim=Region.fluid[self.theEquationName].dimension*self.CoffeDim
 
     def cfdAssembleEquation(self,Region,*args): 
+        # 入口量纲一致性断言
+        self._check_equation_dimensions(Region)
+
         if args:
             iComponent=args[0]
             self.cfdPreAssembleEquation(Region,iComponent)
@@ -121,7 +124,7 @@ class Assemble:
         else:
             raise ValueError(f"Unsupported MatrixFormat: {Region.MatrixFormat}")
 
-        Region.fluid['DU'].phi[:theNumberOfElements,iComponent] = Region.mesh.elementVolumes/Q_(Diag,Region.fluxes.FluxC[self.theEquationName].dimension)
+        Region.fluid['DU'].phi = be.set_at(Region.fluid['DU'].phi, (slice(None, theNumberOfElements), iComponent), Region.mesh.elementVolumes/Diag)
         # else
         # Region.fluid['DUT'].phi[:theNumberOfElements,iComponent]= Region.coefficients.ac_old/Region.coefficients.ac
         #Update at cfdBoundary patches
@@ -135,18 +138,18 @@ class Assemble:
         """
         #《The FVM in CFD》P. 545
         if Region.MatrixFormat == 'acnb':
-            Region.coefficients.ac      += Region.fluxes.FluxC[self.theEquationName].value
+            Region.coefficients.ac = Region.coefficients.ac + Region.fluxes.FluxC[self.theEquationName]
         elif Region.MatrixFormat == 'ldu':
-            Region.coefficients.Diag    += Region.fluxes.FluxC[self.theEquationName].value
+            Region.coefficients.Diag = Region.coefficients.Diag + Region.fluxes.FluxC[self.theEquationName]
         elif Region.MatrixFormat == 'csr':
             diag_positions = Region.coefficients._indptr[:-1]
-            Region.coefficients.csrdata[diag_positions] += Region.fluxes.FluxC[self.theEquationName].value
+            Region.coefficients.csrdata = be.add_at(Region.coefficients.csrdata, diag_positions, Region.fluxes.FluxC[self.theEquationName])
         elif Region.MatrixFormat == 'coo':
             diag_positions = Region.coefficients._coodiagPositions
-            Region.coefficients.coodata[diag_positions] += Region.fluxes.FluxC[self.theEquationName].value
+            Region.coefficients.coodata = be.add_at(Region.coefficients.coodata, diag_positions, Region.fluxes.FluxC[self.theEquationName])
 
         # Region.coefficients.ac_old  += Region.fluxes.FluxC_old[self.theEquationName].value
-        Region.coefficients.bc      -= Region.fluxes.FluxT[self.theEquationName].value
+        Region.coefficients.bc = Region.coefficients.bc - Region.fluxes.FluxT[self.theEquationName]
 
     def cfdAssembleIntoGlobalMatrixFaceFluxes(self,Region,*args):
         #《The FVM in CFD》P. 545
@@ -158,31 +161,31 @@ class Assemble:
         neighbours = Region.mesh.neighbours[:numberOfInteriorFaces]
 
         # 获取Flux数据
-        FluxCf = Region.fluxes.FluxCf[self.theEquationName].value[:numberOfInteriorFaces]
-        FluxFf = Region.fluxes.FluxFf[self.theEquationName].value[:numberOfInteriorFaces]
-        FluxTf = Region.fluxes.FluxTf[self.theEquationName].value[:numberOfInteriorFaces]
+        FluxCf = Region.fluxes.FluxCf[self.theEquationName][:numberOfInteriorFaces]
+        FluxFf = Region.fluxes.FluxFf[self.theEquationName][:numberOfInteriorFaces]
+        FluxTf = Region.fluxes.FluxTf[self.theEquationName][:numberOfInteriorFaces]
 
         # Vectorized updates for interior faces
         # 通用的源项更新（所有格式都需要）
-        np.subtract.at(Region.coefficients.bc, owners, FluxTf)
-        np.add.at(Region.coefficients.bc, neighbours, FluxTf)
+        Region.coefficients.bc = be.subtract_at(Region.coefficients.bc, owners, FluxTf)
+        Region.coefficients.bc = be.add_at(Region.coefficients.bc, neighbours, FluxTf)
 
         # Assemble fluxes of boundary faces
         # 边界面处理（所有格式通用）
         boundary_owners = Region.mesh.owners[numberOfInteriorFaces:]
-        FluxCf_b = Region.fluxes.FluxCf[self.theEquationName].value[numberOfInteriorFaces:]
-        FluxTf_b = Region.fluxes.FluxTf[self.theEquationName].value[numberOfInteriorFaces:]
+        FluxCf_b = Region.fluxes.FluxCf[self.theEquationName][numberOfInteriorFaces:]
+        FluxTf_b = Region.fluxes.FluxTf[self.theEquationName][numberOfInteriorFaces:]
         # Vectorized updates for boundary faces
-        np.subtract.at(Region.coefficients.bc, boundary_owners, FluxTf_b)
+        Region.coefficients.bc = be.subtract_at(Region.coefficients.bc, boundary_owners, FluxTf_b)
 
 
         
         #根据矩阵格式处理矩阵元素
         if Region.MatrixFormat == 'acnb':
             #对角线元素更新
-            np.add.at(Region.coefficients.ac, owners, FluxCf)
-            np.subtract.at(Region.coefficients.ac, neighbours, FluxFf)
-            np.add.at(Region.coefficients.ac, boundary_owners, FluxCf_b)
+            Region.coefficients.ac = be.add_at(Region.coefficients.ac, owners, FluxCf)
+            Region.coefficients.ac = be.subtract_at(Region.coefficients.ac, neighbours, FluxFf)
+            Region.coefficients.ac = be.add_at(Region.coefficients.ac, boundary_owners, FluxCf_b)
             #非对角线元素组装 - 向量化版本：使用 flat anb 数组 + np.add.at
             # anb[i] 是 _acnb_flat 的视图，修改 flat 自动同步
             own_anb_index = Region.mesh.upperAnbCoeffIndex[:numberOfInteriorFaces]
@@ -190,35 +193,35 @@ class Assemble:
             # 构建 flat 数组中的绝对偏移量
             upper_flat_idx = Region.coefficients._acnb_offsets[owners] + own_anb_index
             lower_flat_idx = Region.coefficients._acnb_offsets[neighbours] + nei_anb_index
-            np.add.at(Region.coefficients._acnb_flat, upper_flat_idx, FluxFf)
-            np.subtract.at(Region.coefficients._acnb_flat, lower_flat_idx, FluxCf)
+            Region.coefficients._acnb_flat = be.add_at(Region.coefficients._acnb_flat, upper_flat_idx, FluxFf)
+            Region.coefficients._acnb_flat = be.subtract_at(Region.coefficients._acnb_flat, lower_flat_idx, FluxCf)
 
         elif Region.MatrixFormat == 'ldu':
             """LDU格式的完全向量化组装"""
             # 对角线元素更新
-            np.add.at(Region.coefficients.Diag, owners, FluxCf)
-            np.subtract.at(Region.coefficients.Diag, neighbours, FluxFf)
-            np.add.at(Region.coefficients.Diag, boundary_owners, FluxCf_b)
+            Region.coefficients.Diag = be.add_at(Region.coefficients.Diag, owners, FluxCf)
+            Region.coefficients.Diag = be.subtract_at(Region.coefficients.Diag, neighbours, FluxFf)
+            Region.coefficients.Diag = be.add_at(Region.coefficients.Diag, boundary_owners, FluxCf_b)
             #非对角线元素组装
-            Region.coefficients.Upper[:numberOfInteriorFaces] += FluxFf
-            Region.coefficients.Lower[:numberOfInteriorFaces] -= FluxCf
+            Region.coefficients.Upper = be.add_at(Region.coefficients.Upper, slice(None, numberOfInteriorFaces), FluxFf)
+            Region.coefficients.Lower = be.subtract_at(Region.coefficients.Lower, slice(None, numberOfInteriorFaces), FluxCf)
 
         elif Region.MatrixFormat == 'csr':
             """CSR格式的向量化组装"""
             # 对角元素位置是每行的起始位置
             diag_positions = Region.coefficients._indptr[:-1]
             # 修复：正确的对角元素更新 - 使用正确的索引
-            np.add.at(Region.coefficients.csrdata, diag_positions[owners], FluxCf)
-            np.subtract.at(Region.coefficients.csrdata, diag_positions[neighbours], FluxFf)
-            np.add.at(Region.coefficients.csrdata, diag_positions[boundary_owners], FluxCf_b)
+            Region.coefficients.csrdata = be.add_at(Region.coefficients.csrdata, diag_positions[owners], FluxCf)
+            Region.coefficients.csrdata = be.subtract_at(Region.coefficients.csrdata, diag_positions[neighbours], FluxFf)
+            Region.coefficients.csrdata = be.add_at(Region.coefficients.csrdata, diag_positions[boundary_owners], FluxCf_b)
 
             #非对角线元素组装
             face_positions = Region.coefficients._csrfaceToRowIndex[:numberOfInteriorFaces]
             # 向量化更新CSR数据
             # neighbor_to_owner_pos = face_positions[:, 0]  # Lower值位置
             # owner_to_neighbor_pos = face_positions[:, 1]  # Upper值位置
-            Region.coefficients.csrdata[face_positions[:, 1]] += FluxFf  # Upper
-            Region.coefficients.csrdata[face_positions[:, 0]] -= FluxCf  # Lower
+            Region.coefficients.csrdata = be.add_at(Region.coefficients.csrdata, face_positions[:, 1], FluxFf)  # Upper
+            Region.coefficients.csrdata = be.subtract_at(Region.coefficients.csrdata, face_positions[:, 0], FluxCf)  # Lower
             
             
 
@@ -227,16 +230,16 @@ class Assemble:
             # 对角线元素更新
             diag_positions = Region.coefficients._coodiagPositions
             # 修复：正确的对角元素更新 - 使用正确的索引
-            np.add.at(Region.coefficients.coodata, diag_positions[owners], FluxCf)
-            np.subtract.at(Region.coefficients.coodata, diag_positions[neighbours], FluxFf)
-            np.add.at(Region.coefficients.coodata, diag_positions[boundary_owners], FluxCf_b)
+            Region.coefficients.coodata = be.add_at(Region.coefficients.coodata, diag_positions[owners], FluxCf)
+            Region.coefficients.coodata = be.subtract_at(Region.coefficients.coodata, diag_positions[neighbours], FluxFf)
+            Region.coefficients.coodata = be.add_at(Region.coefficients.coodata, diag_positions[boundary_owners], FluxCf_b)
             #非对角线元素组装
             face_positions = Region.coefficients._coofaceToRowIndex[:numberOfInteriorFaces]
             # 向量化更新COO数据
             # neighbor_to_owner_pos = face_positions[:, 0]  # Lower值位置
             # owner_to_neighbor_pos = face_positions[:, 1]  # Upper值位置
-            Region.coefficients.coodata[face_positions[:, 1]] += FluxFf  # Upper
-            Region.coefficients.coodata[face_positions[:, 0]] -= FluxCf  # Lower
+            Region.coefficients.coodata = be.add_at(Region.coefficients.coodata, face_positions[:, 1], FluxFf)  # Upper
+            Region.coefficients.coodata = be.subtract_at(Region.coefficients.coodata, face_positions[:, 0], FluxCf)  # Lower
 
 
 
@@ -256,15 +259,15 @@ class Assemble:
             
             # 关键修复：对于CSR格式，同步更新对角元素
             if Region.MatrixFormat == 'acnb':
-                Region.coefficients.ac /= urf
+                Region.coefficients.ac = Region.coefficients.ac / urf
             elif Region.MatrixFormat == 'ldu':
-                Region.coefficients.Diag /= urf
+                Region.coefficients.Diag = Region.coefficients.Diag / urf
             elif Region.MatrixFormat == 'csr':
                 diag_positions = Region.coefficients._indptr[:-1]
-                Region.coefficients.csrdata[diag_positions] /= urf
+                Region.coefficients.csrdata = be.set_at(Region.coefficients.csrdata, diag_positions, Region.coefficients.csrdata[diag_positions] / urf)
             elif Region.MatrixFormat == 'coo':
                 diag_positions = Region.coefficients._coodiagPositions
-                Region.coefficients.coodata[diag_positions] /= urf
+                Region.coefficients.coodata = be.set_at(Region.coefficients.coodata, diag_positions, Region.coefficients.coodata[diag_positions] / urf)
 
         except KeyError as e:
             io.cfdError(f"Key '{self.theEquationName}' not found in the dictionary.")
@@ -290,16 +293,16 @@ class Assemble:
         e = Region.mesh.faceCFn[0:theNumberOfInteriorFaces,:]
         DUSf=DUf*Sf
         # DUSf = np.column_stack((np.squeeze(DU0_f)*Sf[:,0],np.squeeze(DU1_f)*Sf[:,1],np.squeeze(DU2_f)*Sf[:,2]))
-        Region.fluid['DUSf'].phi[0:theNumberOfInteriorFaces,:]=DUSf
+        Region.fluid['DUSf'].phi = be.set_at(Region.fluid['DUSf'].phi, slice(None, theNumberOfInteriorFaces), DUSf)
         magDUSf = mth.cfdMag(DUSf)
         if Region.mesh.OrthogonalCorrectionMethod in ['Minimum','minimum','corrected']:
-            Region.fluid['DUEf'].phi[0:theNumberOfInteriorFaces,:] = mth.cfdDot(DUSf,e)[:,None]*e
+            Region.fluid['DUEf'].phi = be.set_at(Region.fluid['DUEf'].phi, slice(None, theNumberOfInteriorFaces), mth.cfdDot(DUSf,e)[:,None]*e)
         elif Region.mesh.OrthogonalCorrectionMethod in ['Orthogonal','orthogonal']:
-            Region.fluid['DUEf'].phi[0:theNumberOfInteriorFaces,:] =magDUSf[:,None]*e
+            Region.fluid['DUEf'].phi = be.set_at(Region.fluid['DUEf'].phi, slice(None, theNumberOfInteriorFaces), magDUSf[:,None]*e)
         elif Region.mesh.OrthogonalCorrectionMethod in ['OverRelaxed','overRelaxed']:
-            eDUSf = mth.cfdUnit(DUSf.value)
+            eDUSf = mth.cfdUnit(DUSf)
             epsilon = 1e-10  # 定义一个小的正常数
-            Region.fluid['DUEf'].phi[0:theNumberOfInteriorFaces,:] =(magDUSf/(mth.cfdDot(eDUSf,e)+ epsilon))[:,None]*e
+            Region.fluid['DUEf'].phi = be.set_at(Region.fluid['DUEf'].phi, slice(None, theNumberOfInteriorFaces), (magDUSf/(mth.cfdDot(eDUSf,e)+ epsilon))[:,None]*e)
         else:
             io.cfdError('Region.mesh.OrthogonalCorrectionMethod not exist')
 
@@ -311,22 +314,22 @@ class Assemble:
             Sf_b = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['facesSf']
             iBFaces=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBFaces']
             CF_b = Region.mesh.faceCF[iBFaces]
-            e = mth.cfdUnit(CF_b.value)
+            e = mth.cfdUnit(CF_b)
             DUb = tools.cfdGetSubArrayForBoundaryPatch('DU', iBPatch,Region)
             # DU1_b = tools.cfdGetSubArrayForBoundaryPatch('DU1', iBPatch,Region)
             # DU2_b = tools.cfdGetSubArrayForBoundaryPatch('DU2', iBPatch,Region)
             # DUSb = np.column_stack((DU0_b*Sf_b[:,1],DU1_b*Sf_b[:,2],DU2_b*Sf_b[:,2]))
             DUSb=DUb*Sf_b
-            Region.fluid['DUSf'].phi[iBFaces,:]=DUSb
+            Region.fluid['DUSf'].phi = be.set_at(Region.fluid['DUSf'].phi, iBFaces, DUSb)
             magSUDb = mth.cfdMag(DUSb)
             if Region.mesh.OrthogonalCorrectionMethod in ['Minimum','minimum','corrected']:
-                Region.fluid['DUEf'].phi[iBFaces,:] = mth.cfdDot(DUSb,e)[:,None]*e
+                Region.fluid['DUEf'].phi = be.set_at(Region.fluid['DUEf'].phi, iBFaces, mth.cfdDot(DUSb,e)[:,None]*e)
             elif Region.mesh.OrthogonalCorrectionMethod in ['Orthogonal','orthogonal']:
-                Region.fluid['DUEf'].phi[iBFaces,:] =magSUDb[:,None]*e
+                Region.fluid['DUEf'].phi = be.set_at(Region.fluid['DUEf'].phi, iBFaces, magSUDb[:,None]*e)
             elif Region.mesh.OrthogonalCorrectionMethod in ['OverRelaxed','overRelaxed']:
                 epsilon = 1e-10  # 定义一个小的正常数
-                eDUSb =  mth.cfdUnit(DUSb.value)
-                Region.fluid['DUEf'].phi[iBFaces,:] =(magSUDb/(mth.cfdDot(eDUSb,e )+ epsilon))[:,None]*e
+                eDUSb =  mth.cfdUnit(DUSb)
+                Region.fluid['DUEf'].phi = be.set_at(Region.fluid['DUEf'].phi, iBFaces, (magSUDb/(mth.cfdDot(eDUSb,e )+ epsilon))[:,None]*e)
             else:
                 io.cfdError('Region.mesh.OrthogonalCorrectionMethod not exist')
         # DUEb = [magSUDb./dot(e',eDUSb')'.*e(:,1),magSUDb./dot(e',eDUSb')'.*e(:,2),magSUDb./dot(e',eDUSb')'.*e(:,3)];
@@ -497,7 +500,7 @@ class Assemble:
         rho_b = tools.cfdGetSubArrayForBoundaryPatch('rho', iBPatch,Region)
         p_grad_b = tools.cfdGetGradientSubArrayForBoundaryPatch('p', iBPatch,Region)
         owners_b=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
-        p_grad_C=np.squeeze(Region.fluid['p'].Grad.phi[owners_b,:,0])
+        p_grad_C=be.squeeze(Region.fluid['p'].Grad.phi[owners_b,:,0])
 
         #   ---------
         #    STEP 1
@@ -514,8 +517,8 @@ class Assemble:
         #   Total flux
         #   local_FluxTb = local_FluxCb.*p(owners_b) + local_FluxFb.*p_b + local_FluxVb;
         #   Update global fluxes
-        Region.fluxes.FluxVf[self.theEquationName][iBFaces] +=  local_FluxVb
-        Region.fluxes.FluxTf[self.theEquationName][iBFaces] +=  local_FluxVb  #TODO check FluxTf pprime boundarycondition
+        Region.fluxes.FluxVf[self.theEquationName] = be.add_at(Region.fluxes.FluxVf[self.theEquationName], iBFaces, local_FluxVb)
+        Region.fluxes.FluxTf[self.theEquationName] = be.add_at(Region.fluxes.FluxTf[self.theEquationName], iBFaces, local_FluxVb)  #TODO check FluxTf pprime boundarycondition
 
 
     #  ===================================================
@@ -572,7 +575,7 @@ class Assemble:
         # p = tools.cfdGetSubArrayForInterior('p',Region)
         p_grad_b = tools.cfdGetGradientSubArrayForBoundaryPatch('p', iBPatch,Region)
         owners_b=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
-        p_grad_C=np.squeeze(Region.fluid['p'].Grad.phi[owners_b,:,0])
+        p_grad_C=be.squeeze(Region.fluid['p'].Grad.phi[owners_b,:,0])
         #   ---------
         #    STEP 1
         #   ---------
@@ -596,9 +599,9 @@ class Assemble:
         local_FluxVb += rho_b*mth.cfdDot((p_grad_b-p_grad_C),Region.fluid['DUSf'].phi[iBFaces,:])
         #   local_FluxTb = local_FluxCb.*p(owners_b) + local_FluxFb.*p_b + local_FluxVb;
         #   Update global fluxes
-        Region.fluxes.FluxCf[self.theEquationName][iBFaces] += local_FluxCb
-        Region.fluxes.FluxVf[self.theEquationName][iBFaces] += local_FluxVb
-        Region.fluxes.FluxTf[self.theEquationName][iBFaces] += local_FluxVb   #TODO check FluxTf
+        Region.fluxes.FluxCf[self.theEquationName] = be.add_at(Region.fluxes.FluxCf[self.theEquationName], iBFaces, local_FluxCb)
+        Region.fluxes.FluxVf[self.theEquationName] = be.add_at(Region.fluxes.FluxVf[self.theEquationName], iBFaces, local_FluxVb)
+        Region.fluxes.FluxTf[self.theEquationName] = be.add_at(Region.fluxes.FluxTf[self.theEquationName], iBFaces, local_FluxVb)   #TODO check FluxTf
 
 
 
@@ -664,9 +667,9 @@ class Assemble:
         if scheme=='linearUpwind':
             #   Get first computed mdot_f
             mdot_f_prev = tools.cfdGetSubArrayForInterior('mdot_f',Region)
-            rho_f = np.squeeze(interp.cfdInterpolateFromElementsToInteriorFaces(Region,scheme, rho, mdot_f_prev))
+            rho_f = be.squeeze(interp.cfdInterpolateFromElementsToInteriorFaces(Region,scheme, rho, mdot_f_prev))
         else:
-            rho_f = np.squeeze(interp.cfdInterpolateFromElementsToInteriorFaces(Region,scheme, rho))
+            rho_f = be.squeeze(interp.cfdInterpolateFromElementsToInteriorFaces(Region,scheme, rho))
 
         #   Get velocity field and interpolate to faces
         # U_bar_f = interp.cfdInterpolateFromElementsToInteriorFaces(Region,'linear', tools.cfdGetSubArrayForInterior('U',Region))
@@ -674,7 +677,7 @@ class Assemble:
         #   Initialize local fluxes
         local_FluxCf = rho_f*geoDiff
         local_FluxFf = -local_FluxCf
-        local_FluxVf = np.squeeze(tools.cfdGetSubArrayForInterior('mdot_f',Region))-rho_f*mth.cfdDot(p_RhieChowValue,Region.fluid['DUSf'].phi[:theNumberOfInteriorFaces])#TODO check FluxVf
+        local_FluxVf = be.squeeze(tools.cfdGetSubArrayForInterior('mdot_f',Region))-rho_f*mth.cfdDot(p_RhieChowValue,Region.fluid['DUSf'].phi[:theNumberOfInteriorFaces])#TODO check FluxVf
 
         if Region.pp_nonlinear_corrected:
             Region.fluid['pprime'].Grad.cfdUpdateGradient(Region)
@@ -694,10 +697,10 @@ class Assemble:
 
         #   Update global fluxes
         #《the FVM in CFD》P. 595 eq.15.99
-        Region.fluxes.FluxCf[self.theEquationName][:theNumberOfInteriorFaces]  += local_FluxCf
-        Region.fluxes.FluxFf[self.theEquationName][:theNumberOfInteriorFaces]  += local_FluxFf
-        Region.fluxes.FluxVf[self.theEquationName][:theNumberOfInteriorFaces]  += local_FluxVf
-        Region.fluxes.FluxTf[self.theEquationName][:theNumberOfInteriorFaces]  += local_FluxVf
+        Region.fluxes.FluxCf[self.theEquationName] = be.add_at(Region.fluxes.FluxCf[self.theEquationName], slice(None, theNumberOfInteriorFaces), local_FluxCf)
+        Region.fluxes.FluxFf[self.theEquationName] = be.add_at(Region.fluxes.FluxFf[self.theEquationName], slice(None, theNumberOfInteriorFaces), local_FluxFf)
+        Region.fluxes.FluxVf[self.theEquationName] = be.add_at(Region.fluxes.FluxVf[self.theEquationName], slice(None, theNumberOfInteriorFaces), local_FluxVf)
+        Region.fluxes.FluxTf[self.theEquationName] = be.add_at(Region.fluxes.FluxTf[self.theEquationName], slice(None, theNumberOfInteriorFaces), local_FluxVf)
         #   theFluxes.FluxTf(iFaces,1) = local_FluxTf;      #TODO check FluxTf
 
 
@@ -726,14 +729,14 @@ class Assemble:
         这段Python代码定义了一个名为`assembleFirstOrderEulerTransientTerm`的方法，这个方法是CFD模拟中数值求解过程的一部分，用于组装瞬态项，这对于求解流体动力学方程是必要的。通过这种方式，可以方便地访问和更新通量信息，以实现模拟的数值求解。
         """   
         volumes = Region.mesh.elementVolumes
-        deltaT = Q_(Region.dictionaries.controlDict['deltaT'],dm.time_dim)
-        local_FluxC =volumes*np.squeeze(Region.fluid['rho'].phi[:Region.mesh.numberOfElements])/deltaT
-        local_FluxC_old = -volumes*np.squeeze(Region.fluid['rho'].phi_old[:Region.mesh.numberOfElements])/deltaT
-        Region.fluxes.FluxC[self.theEquationName] += local_FluxC#.applyFun(np.squeeze)
-        Region.fluxes.FluxC_old[self.theEquationName] += local_FluxC_old
+        deltaT = Region.dictionaries.controlDict['deltaT']
+        local_FluxC =volumes*be.squeeze(Region.fluid['rho'].phi[:Region.mesh.numberOfElements])/deltaT
+        local_FluxC_old = -volumes*be.squeeze(Region.fluid['rho'].phi_old[:Region.mesh.numberOfElements])/deltaT
+        Region.fluxes.FluxC[self.theEquationName] = Region.fluxes.FluxC[self.theEquationName] + local_FluxC#.applyFun(np.squeeze)
+        Region.fluxes.FluxC_old[self.theEquationName] = Region.fluxes.FluxC_old[self.theEquationName] + local_FluxC_old
 
         # Region.fluxes.FluxV = np.zeros(len(local_FluxC),dtype=float)
-        Region.fluxes.FluxT[self.theEquationName]+=\
+        Region.fluxes.FluxT[self.theEquationName] = Region.fluxes.FluxT[self.theEquationName] +\
         (local_FluxC*Region.fluid[self.theEquationName].phi[:Region.mesh.numberOfElements,self.iComponent]
                               +local_FluxC_old*Region.fluid[self.theEquationName].phi_old[:Region.mesh.numberOfElements,self.iComponent])
 
@@ -769,8 +772,8 @@ class Assemble:
         phi=Region.fluid[theEquationName].phi[:Region.mesh.numberOfElements,self.iComponent]
         gradPhi = Region.fluid[theEquationName].Grad.phi[:Region.mesh.numberOfElements,:,self.iComponent]
         mdot_f = Region.fluid['mdot_f'].phi[:Region.mesh.numberOfInteriorFaces]
-        pos = (np.squeeze(mdot_f.value) > 0).astype(int) 
-        iFaces = list(range(numberOfInteriorFaces))
+        pos = (be.squeeze(mdot_f) > 0).astype(int)
+        iFaces = be.arange(numberOfInteriorFaces)
         owners_f = Region.mesh.owners[iFaces]
         neighbours_f = Region.mesh.neighbours[iFaces]
         iUpwind = pos*owners_f + (1-pos)*neighbours_f
@@ -784,10 +787,10 @@ class Assemble:
         rCf = rf - rC
         # for i in range(numberOfInteriorFaces)
         #     dc_corr[i,:] = mdot_f[i] * np.dot(2*phiGradC[i,:]-phiGrad_f[i,:],rCf[i,:])
-        dc_corr = np.squeeze(mdot_f) * mth.cfdDot(2*phiGradC-phiGrad_f,rCf)
+        dc_corr = be.squeeze(mdot_f) * mth.cfdDot(2*phiGradC-phiGrad_f,rCf)
 
         #Update global fluxes
-        Region.fluxes.FluxTf[self.theEquationName][iFaces] +=  dc_corr
+        Region.fluxes.FluxTf[self.theEquationName] = be.add_at(Region.fluxes.FluxTf[self.theEquationName], iFaces, dc_corr)
 
     def cfdAssembleConvectionTerm(self,Region,*args):
         self.cfdAssembleConvectionTermInterior(Region)
@@ -831,76 +834,60 @@ class Assemble:
         #  ===================================================
         #   Fixed Value
         #  ===================================================
-        #   Get info
         theEquationName=self.theEquationName
-        iBFaces = range(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex'],Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']+Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces'])
+        iBFaces = np.array(range(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex'],Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']+Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces']))
         iBElements=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
-        # Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']-Region.mesh.numberOfElements
         owners_b = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
 
-        #   Get fields
-        Ui_C =Region.fluid[theEquationName].phi[owners_b,self.iComponent]
-        Ui_b =Region.fluid[theEquationName].phi[iBElements,self.iComponent]
-        mdot_b = np.squeeze(Region.fluid['mdot_f'].phi[iBFaces])
+        #   Get fields — 使用 .value 避免 Quantity 包装
+        phi_val = Region.fluid[theEquationName].phi
+        Ui_C = phi_val[owners_b,self.iComponent]
+        Ui_b = phi_val[iBElements,self.iComponent]
+        mdot_b = Region.fluid['mdot_f'].phi[iBFaces,0]
 
         #   linear fluxes
         zeros=np.zeros_like(mdot_b)
         local_FluxCb =  np.maximum(mdot_b,zeros)
-        local_FluxFb = -np.maximum(-mdot_b,zeros)# 《The SIMPLE Algorithm》 Page57 eq6.82
+        local_FluxFb = -np.maximum(-mdot_b,zeros)
 
-        #   Non-linear fluxes
-        # local_FluxVb = np.zeros(len(local_FluxCb))
         #   Update global fluxes
-        Region.fluxes.FluxCf[iBFaces]  += local_FluxCb
-        # Region.fluxes.FluxFf[iBFaces]  = local_FluxFb
-        Region.fluxes.FluxTf[iBFaces]  += local_FluxCb*Ui_C + local_FluxFb*Ui_b #+ local_FluxVb
+        Region.fluxes.FluxCf[self.theEquationName] = be.add_at(Region.fluxes.FluxCf[self.theEquationName], iBFaces, local_FluxCb)
+        Region.fluxes.FluxTf[self.theEquationName] = be.add_at(Region.fluxes.FluxTf[self.theEquationName], iBFaces, local_FluxCb*Ui_C + local_FluxFb*Ui_b)
 
     def cfdAssembleConvectionTermZeroGradient(self,Region,iBPatch,*args):
         #  ===================================================
-        #   Fixed Value
+        #   Zero Gradient
         #  ===================================================
-        #   Get info
         theEquationName=self.theEquationName
-        iBFaces = range(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex'],Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']+Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces'])
-        # iBElements=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
+        iBFaces = np.array(range(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex'],Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']+Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces']))
         owners_b = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
 
-        #   Get fields
-        # Region.fluid[theEquationName].cfdGetSubArrayForInterior(Region)
-        Ui_C =Region.fluid[theEquationName].phi[owners_b,self.iComponent]
-        mdot_b = np.squeeze(Region.fluid['mdot_f'].phi[iBFaces])
+        #   Get fields — 使用 .value 避免 Quantity 包装
+        phi_val = Region.fluid[theEquationName].phi
+        Ui_C = phi_val[owners_b,self.iComponent]
+        mdot_b = Region.fluid['mdot_f'].phi[iBFaces,0]
 
         #   linear fluxes
         local_FluxCb = mdot_b
-        #   Non-linear fluxes
         #   Update global fluxes
-        Region.fluxes.FluxCf[iBFaces]  += local_FluxCb
-        # Region.fluxes.FluxFf[iBFaces]  = local_FluxFb
-        Region.fluxes.FluxTf[iBFaces]  += local_FluxCb*Ui_C
-        # + local_FluxFb*Ui_b[iBElements] + local_FluxVb
+        Region.fluxes.FluxCf[self.theEquationName] = be.add_at(Region.fluxes.FluxCf[self.theEquationName], iBFaces, local_FluxCb)
+        Region.fluxes.FluxTf[self.theEquationName] = be.add_at(Region.fluxes.FluxTf[self.theEquationName], iBFaces, local_FluxCb*Ui_C)
 
 
     def cfdAssembleConvectionTermInterior(self,Region,*args):
         theEquationName=self.theEquationName
-        # Region.fluid[theEquationName].cfdGetSubArrayForInterior(Region)
-        phi=Region.fluid[theEquationName].phi[:Region.mesh.numberOfElements,self.iComponent]
         numberOfInteriorFaces = Region.mesh.numberOfInteriorFaces
-        mdot_f=np.squeeze(Region.fluid['mdot_f'].phi[0:numberOfInteriorFaces])
+        # 使用 .value 避免 Quantity 包装/拆包开销
+        phi=Region.fluid[theEquationName].phi[:Region.mesh.numberOfElements,self.iComponent]
+        mdot_f=Region.fluid['mdot_f'].phi[:numberOfInteriorFaces,0]
         zeros=np.zeros_like(mdot_f)
-        local_FluxCf=np.maximum(mdot_f,zeros)  #《The SIMPLE Algorithm》Chapter 5. Page39 公式5.66
+        local_FluxCf=np.maximum(mdot_f,zeros)
         local_FluxFf=-np.maximum(-mdot_f,zeros)
-        # local_FluxVf=np.zeros_like(Region.fluxes.FluxVf[self.theEquationName][:numberOfInteriorFaces])
-        Region.fluxes.FluxCf[self.theEquationName][:numberOfInteriorFaces] += local_FluxCf
-        Region.fluxes.FluxFf[self.theEquationName][:numberOfInteriorFaces] += local_FluxFf
-        # Region.fluxes.FluxVf[self.theEquationName][:numberOfInteriorFaces] += local_FluxVf
-        # Region.fluxes.FluxTf[0:numberOfInteriorFaces] = np.multiply(local_FluxCf[:, np.newaxis],np.squeeze(phi[self.owners_interior_f]))+np.multiply(local_FluxFf[:, np.newaxis],np.squeeze(phi[self.neighbours_interior_f]))+ local_FluxVf[:, np.newaxis]
-        # for field in Region.fluxes.FluxTf:
-        # if args:
-        #     iComponent=args[0]
-        #     Region.fluxes.FluxTf[0:numberOfInteriorFaces] = Region.fluxes.FluxCf[0:numberOfInteriorFaces]*phi[Region.mesh.interiorFaceOwners,iComponent]+Region.fluxes.FluxFf[0:numberOfInteriorFaces]*phi[Region.mesh.interiorFaceNeighbours,iComponent]+ Region.fluxes.FluxVf[0:numberOfInteriorFaces]
-        # else:
-        Region.fluxes.FluxTf[self.theEquationName][:numberOfInteriorFaces] +=local_FluxCf*np.squeeze(phi[Region.mesh.interiorFaceOwners])\
-            +local_FluxFf*np.squeeze(phi[Region.mesh.interiorFaceNeighbours])#+ local_FluxVf
+        Region.fluxes.FluxCf[self.theEquationName] = be.add_at(Region.fluxes.FluxCf[self.theEquationName], slice(None, numberOfInteriorFaces), local_FluxCf)
+        Region.fluxes.FluxFf[self.theEquationName] = be.add_at(Region.fluxes.FluxFf[self.theEquationName], slice(None, numberOfInteriorFaces), local_FluxFf)
+        Region.fluxes.FluxTf[self.theEquationName] = be.add_at(Region.fluxes.FluxTf[self.theEquationName], slice(None, numberOfInteriorFaces),
+            local_FluxCf*phi[Region.mesh.interiorFaceOwners]
+            +local_FluxFf*phi[Region.mesh.interiorFaceNeighbours])
 
 
     def cfdAssembleMomentumDivergenceCorrectionTerm(self,Region,*args):
@@ -913,9 +900,9 @@ class Assemble:
         local_FluxC = max_effDiv - effDiv[:numberOfElements]
         local_FluxV = -max_effDiv * Ui
         # local_FluxT = local_FluxC * Ui + local_FluxV
-        Region.fluxes.FluxC[self.theEquationName][:numberOfElements] += local_FluxC
-        Region.fluxes.FluxV[self.theEquationName][:numberOfElements] += local_FluxV
-        Region.fluxes.FluxT[self.theEquationName][:numberOfElements] += local_FluxC * Ui + local_FluxV
+        Region.fluxes.FluxC[self.theEquationName] = be.add_at(Region.fluxes.FluxC[self.theEquationName], slice(None, numberOfElements), local_FluxC)
+        Region.fluxes.FluxV[self.theEquationName] = be.add_at(Region.fluxes.FluxV[self.theEquationName], slice(None, numberOfElements), local_FluxV)
+        Region.fluxes.FluxT[self.theEquationName] = be.add_at(Region.fluxes.FluxT[self.theEquationName], slice(None, numberOfElements), local_FluxC * Ui + local_FluxV)
 
     # TODO Check
     def cfdComputeEffectiveDivergence(self,Region,*args):
@@ -940,12 +927,12 @@ class Assemble:
         #         io.cfdError('Cp field is not available')
         # Initialize effective divergence array
         mdot_f = np.squeeze(mdot_f)
-        effDiv = Q_(np.zeros(theNumberOfFaces),mdot_f.dimension)
+        effDiv = np.zeros(theNumberOfFaces)
         #   Interior Faces Contribution
-        effDiv[owners[:theNumberofInteriorFaces]] += mdot_f[:theNumberofInteriorFaces]
-        effDiv[neighbours[:theNumberofInteriorFaces]] -= mdot_f[:theNumberofInteriorFaces]
+        effDiv = be.add_at(effDiv, owners[:theNumberofInteriorFaces], mdot_f[:theNumberofInteriorFaces])
+        effDiv = be.subtract_at(effDiv, neighbours[:theNumberofInteriorFaces], mdot_f[:theNumberofInteriorFaces])
         #   Boundary Faces Contribution
-        effDiv[owners[theNumberofInteriorFaces:]] += mdot_f[theNumberofInteriorFaces:]
+        effDiv = be.add_at(effDiv, owners[theNumberofInteriorFaces:], mdot_f[theNumberofInteriorFaces:])
         return effDiv
 
     def cfdAssembleDiffusionTerm(self,Region,*args):
@@ -1010,49 +997,51 @@ class Assemble:
         """
         theEquationName=self.theEquationName
         numberOfInteriorFaces = Region.mesh.numberOfInteriorFaces
-        gamma_f=np.squeeze(interp.cfdInterpolateFromElementsToFaces(Region,'harmonic mean',Region.model.equations[self.theEquationName].gamma))#调和平均值，《FVM》P226
+        # 直接调用 _tool 版本避免 Quantity 包装/拆包开销
+        gamma_f=np.squeeze(interp.cfdInterpolateFromElementsToFaces_tool(Region,'harmonic mean',Region.model.equations[self.theEquationName].gamma))#调和平均值，《FVM》P226
         local_FluxCf  = gamma_f[:numberOfInteriorFaces]*Region.mesh.geoDiff_f[:numberOfInteriorFaces]
         # local_FluxFf  =-gamma_f[0:numberOfInteriorFaces]*Region.mesh.geoDiff_f[0:numberOfInteriorFaces]
         local_FluxFf  =-local_FluxCf
 
         # 处理非正交修正项（如果需要）
-        # Interpolated gradients on interior faces
-        gradPhi_f=interp.cfdInterpolateGradientsFromElementsToInteriorFaces(Region,Region.fluid[theEquationName].Grad.phi[:Region.mesh.numberOfElements,:,self.iComponent],'linear')
-        local_FluxVf  =-gamma_f[:numberOfInteriorFaces]*mth.cfdDot(gradPhi_f,Region.mesh.faceTf[:numberOfInteriorFaces,:])
+        # Interpolated gradients on interior faces - 直接用 _tool 避免 Quantity 包装
+        gradPhi_val = Region.fluid[theEquationName].Grad.phi[:Region.mesh.numberOfElements,:,self.iComponent]
+        gradPhi_f=interp.cfdInterpolateGradientsFromElementsToInteriorFaces_tool(Region, gradPhi_val, 'linear')
+        local_FluxVf  =-gamma_f[:numberOfInteriorFaces]*mth.cfdDot_np(gradPhi_f,Region.mesh.faceTf[:numberOfInteriorFaces,:])
         if theEquationName=='U':
-            gradPhi_f=interp.cfdInterpolateGradientsFromElementsToInteriorFaces(Region,Region.fluid[theEquationName].Grad.phi_TR[:Region.mesh.numberOfElements,:,self.iComponent],'linear')
-            local_FluxVf += gamma_f[:numberOfInteriorFaces]*mth.cfdDot(gradPhi_f,Region.mesh.interiorFaceSf)
+            gradPhi_f=interp.cfdInterpolateGradientsFromElementsToInteriorFaces_tool(Region, Region.fluid[theEquationName].Grad.phi_TR[:Region.mesh.numberOfElements,:,self.iComponent],'linear')
+            local_FluxVf += gamma_f[:numberOfInteriorFaces]*mth.cfdDot_np(gradPhi_f,Region.mesh.interiorFaceSf)
             if Region.cfdIsCompressible:
                 local_FluxVf += 2.0/3.0*gamma_f[:numberOfInteriorFaces]*(Region.fluid[theEquationName].Grad.phi_Trace[:numberOfInteriorFaces]*Region.mesh.interiorFaceSf[:,self.iComponent])
 
-        Region.fluxes.FluxCf[self.theEquationName][:numberOfInteriorFaces] += local_FluxCf
-        Region.fluxes.FluxFf[self.theEquationName][:numberOfInteriorFaces] += local_FluxFf
-        Region.fluxes.FluxVf[self.theEquationName][:numberOfInteriorFaces] += local_FluxVf
+        Region.fluxes.FluxCf[self.theEquationName] = be.add_at(Region.fluxes.FluxCf[self.theEquationName], slice(None, numberOfInteriorFaces), local_FluxCf)
+        Region.fluxes.FluxFf[self.theEquationName] = be.add_at(Region.fluxes.FluxFf[self.theEquationName], slice(None, numberOfInteriorFaces), local_FluxFf)
+        Region.fluxes.FluxVf[self.theEquationName] = be.add_at(Region.fluxes.FluxVf[self.theEquationName], slice(None, numberOfInteriorFaces), local_FluxVf)
 
-        phi=Region.fluid[theEquationName].phi[:Region.mesh.numberOfElements,self.iComponent]
-        Region.fluxes.FluxTf[self.theEquationName][:numberOfInteriorFaces] += local_FluxCf*np.squeeze(phi[Region.mesh.interiorFaceOwners])\
-            +local_FluxFf*np.squeeze(phi[Region.mesh.interiorFaceNeighbours])+ local_FluxVf
+        phi_val=Region.fluid[theEquationName].phi[:Region.mesh.numberOfElements,self.iComponent]
+        Region.fluxes.FluxTf[self.theEquationName] = be.add_at(Region.fluxes.FluxTf[self.theEquationName], slice(None, numberOfInteriorFaces),
+            local_FluxCf*np.squeeze(phi_val[Region.mesh.interiorFaceOwners])
+            +local_FluxFf*np.squeeze(phi_val[Region.mesh.interiorFaceNeighbours])+ local_FluxVf)
 
         
     def cfdAssembleStressTermWallNoslipBC(self,Region,iBPatch,*args):
         #   Get info
         theEquationName=self.theEquationName
         iComponent=self.iComponent
-        iBFaces = range(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex'],Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']+Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces'])
-        # iBElements=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
+        iBFaces = np.array(range(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex'],Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']+Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces']))
         owners_b = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
 
-        #   Get fields
-        # Region.fluid[theEquationName].cfdGetSubArrayForInterior(Region)
-        phi_C =Region.fluid[theEquationName].phi[owners_b,:]
-        #   Get required fields
-        mu_b = np.squeeze(Region.model.equations[self.theEquationName].gamma[owners_b])
-
+        #   Get fields — 使用 .value 避免 Quantity 包装开销
+        phi_val = Region.fluid[theEquationName].phi
+        phi_C = phi_val[owners_b,:]
+        gamma_val = Region.model.equations[self.theEquationName].gamma
+        mu_b = np.squeeze(gamma_val[owners_b])
+        geoDiff_b = Region.mesh.geoDiff_f[iBFaces]
 
         u_C = phi_C[:,0]
         v_C = phi_C[:,1]
         w_C = phi_C[:,2]
-        n = mth.cfdUnit(Region.mesh.faceSf[iBFaces].value)
+        n = mth.cfdUnit(Region.mesh.faceSf[iBFaces])
         #   Normals and components
         nx = n[:,0]
         ny = n[:,1]
@@ -1064,37 +1053,35 @@ class Assemble:
 
         #   Local fluxes
         if iComponent==0:
-            local_FluxCb =  mu_b*Region.mesh.geoDiff_f[iBFaces]*(1-nx2)
-            local_FluxVb = -mu_b*Region.mesh.geoDiff_f[iBFaces]*(v_C*ny*nx+w_C*nz*nx)
+            local_FluxCb =  mu_b*geoDiff_b*(1-nx2)
+            local_FluxVb = -mu_b*geoDiff_b*(v_C*ny*nx+w_C*nz*nx)
         elif iComponent==1:
-            local_FluxCb =  mu_b*Region.mesh.geoDiff_f[iBFaces]*(1-ny2)
-            local_FluxVb = -mu_b*Region.mesh.geoDiff_f[iBFaces]*(u_C*nx*ny+w_C*nz*ny)
+            local_FluxCb =  mu_b*geoDiff_b*(1-ny2)
+            local_FluxVb = -mu_b*geoDiff_b*(u_C*nx*ny+w_C*nz*ny)
         elif iComponent==2:
-            local_FluxCb =  mu_b*Region.mesh.geoDiff_f[iBFaces]*(1-nz2)
-            local_FluxVb = -mu_b*Region.mesh.geoDiff_f[iBFaces]*(u_C*nx*nz+v_C*ny*nz)
+            local_FluxCb =  mu_b*geoDiff_b*(1-nz2)
+            local_FluxVb = -mu_b*geoDiff_b*(u_C*nx*nz+v_C*ny*nz)
 
         #   Update global fluxes
-        # local_FluxFb =np.zeros(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces'])
-
-        Region.fluxes.FluxCf[self.theEquationName][iBFaces] += local_FluxCb
-        # Region.fluxes.FluxFf[iBFaces] = local_FluxFb
-        Region.fluxes.FluxVf[self.theEquationName][iBFaces] += local_FluxVb
-        Region.fluxes.FluxTf[self.theEquationName][iBFaces] += local_FluxCb*phi_C[:,iComponent] + local_FluxVb#+ local_FluxFb*phi_b[:,iComponent]
+        Region.fluxes.FluxCf[self.theEquationName] = be.add_at(Region.fluxes.FluxCf[self.theEquationName], iBFaces, local_FluxCb)
+        Region.fluxes.FluxVf[self.theEquationName] = be.add_at(Region.fluxes.FluxVf[self.theEquationName], iBFaces, local_FluxVb)
+        Region.fluxes.FluxTf[self.theEquationName] = be.add_at(Region.fluxes.FluxTf[self.theEquationName], iBFaces, local_FluxCb*phi_C[:,iComponent] + local_FluxVb)
 
     def cfdAssembleStressTermWallFixedValueBC(self,Region,iBPatch,*args):
         #   Get info
         theEquationName=self.theEquationName
         iComponent=self.iComponent
-        iBFaces = range(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex'],Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']+Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces'])
+        iBFaces = np.array(range(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex'],Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']+Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces']))
         iBElements=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
         owners_b = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
 
-        #   Get fields
-        # Region.fluid[theEquationName].cfdGetSubArrayForInterior(Region)
-        phi_C =Region.fluid[theEquationName].phi[owners_b,:]
-        phi_b =Region.fluid[theEquationName].phi[iBElements,:] 
-        #   Get required fields
-        mu_b = np.squeeze(Region.model.equations[self.theEquationName].gamma[owners_b])
+        #   Get fields — 使用 .value 避免 Quantity 包装开销
+        phi_val = Region.fluid[theEquationName].phi
+        phi_C = phi_val[owners_b,:]
+        phi_b = phi_val[iBElements,:] 
+        gamma_val = Region.model.equations[self.theEquationName].gamma
+        mu_b = np.squeeze(gamma_val[owners_b])
+        geoDiff_b = Region.mesh.geoDiff_f[iBFaces]
         
         #《the FVM in CFD》P604-608 
         if iComponent != -1:
@@ -1104,7 +1091,7 @@ class Assemble:
             u_b = phi_b[:,0]
             v_b = phi_b[:,1]
             w_b = phi_b[:,2]
-            n = mth.cfdUnit(Region.mesh.faceSf[iBFaces].value)
+            n = mth.cfdUnit(Region.mesh.faceSf[iBFaces])
             #   Normals and components
             nx = n[:,0]
             ny = n[:,1]
@@ -1114,40 +1101,36 @@ class Assemble:
             nz2 = nz*nz
             #   Local fluxes
             if iComponent==0:
-                local_FluxCb =  mu_b*Region.mesh.geoDiff_f[iBFaces]*(1-nx2)
-                local_FluxVb = -mu_b*Region.mesh.geoDiff_f[iBFaces]*(u_b*(1-nx2)+(v_C-v_b)*ny*nx+(w_C-w_b)*nz*nx)
+                local_FluxCb =  mu_b*geoDiff_b*(1-nx2)
+                local_FluxVb = -mu_b*geoDiff_b*(u_b*(1-nx2)+(v_C-v_b)*ny*nx+(w_C-w_b)*nz*nx)
             elif iComponent==1:
-                local_FluxCb =  mu_b*Region.mesh.geoDiff_f[iBFaces]*(1-ny2)
-                local_FluxVb = -mu_b*Region.mesh.geoDiff_f[iBFaces]*((u_C-u_b)*nx*ny+v_b*(1-ny2)+(w_C-w_b)*nz*ny)
+                local_FluxCb =  mu_b*geoDiff_b*(1-ny2)
+                local_FluxVb = -mu_b*geoDiff_b*((u_C-u_b)*nx*ny+v_b*(1-ny2)+(w_C-w_b)*nz*ny)
             elif iComponent==2:
-                local_FluxCb =  mu_b*Region.mesh.geoDiff_f[iBFaces]*(1-nz2)
-                local_FluxVb = -mu_b*Region.mesh.geoDiff_f[iBFaces]*((u_C-u_b)*nx*nz+(v_C-v_b)*ny*nz+w_b*(1-nz2))
-            # local_FluxFb =np.zeros_like(local_FluxCb)
+                local_FluxCb =  mu_b*geoDiff_b*(1-nz2)
+                local_FluxVb = -mu_b*geoDiff_b*((u_C-u_b)*nx*nz+(v_C-v_b)*ny*nz+w_b*(1-nz2))
         else:
-            local_FluxCb=mu_b*Region.mesh.geoDiff_f[iBFaces]
-            # local_FluxFb=-mu_b*Region.mesh.geoDiff_f[iBFaces] #TODO check boundary condition
+            local_FluxCb=mu_b*geoDiff_b
             local_FluxVb=-local_FluxCb*phi_b[:,iComponent]
 
-
         # Update global fluxes
-        Region.fluxes.FluxCf[self.theEquationName][iBFaces] += local_FluxCb
-        Region.fluxes.FluxVf[self.theEquationName][iBFaces] += local_FluxVb
-        Region.fluxes.FluxTf[self.theEquationName][iBFaces] += local_FluxCb*phi_C[:,iComponent]  + local_FluxVb
-        # pass
+        Region.fluxes.FluxCf[self.theEquationName] = be.add_at(Region.fluxes.FluxCf[self.theEquationName], iBFaces, local_FluxCb)
+        Region.fluxes.FluxVf[self.theEquationName] = be.add_at(Region.fluxes.FluxVf[self.theEquationName], iBFaces, local_FluxVb)
+        Region.fluxes.FluxTf[self.theEquationName] = be.add_at(Region.fluxes.FluxTf[self.theEquationName], iBFaces, local_FluxCb*phi_C[:,iComponent]  + local_FluxVb)
 
     def cfdAssembleStressTermSymmetry(self,Region,iBPatch,*args):
         #   Get info
         theEquationName=self.theEquationName
         iComponent=self.iComponent
-        iBFaces = range(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex'],Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']+Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces'])
-        # iBElements=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
+        iBFaces = np.array(range(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex'],Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']+Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces']))
         owners_b = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
 
-        #   Get fields
-        # Region.fluid[theEquationName].cfdGetSubArrayForInterior(Region)
-        phi_C =Region.fluid[theEquationName].phi[owners_b,:]
-        #   Get required fields
-        mu_b = np.squeeze(Region.model.equations[self.theEquationName].gamma[owners_b])
+        #   Get fields — 使用 .value 避免 Quantity 包装开销
+        phi_val = Region.fluid[theEquationName].phi
+        phi_C = phi_val[owners_b,:]
+        gamma_val = Region.model.equations[self.theEquationName].gamma
+        mu_b = np.squeeze(gamma_val[owners_b])
+        geoDiff_b = Region.mesh.geoDiff_f[iBFaces]
 
         u_C = phi_C[:,0]
         v_C = phi_C[:,1]
@@ -1163,52 +1146,44 @@ class Assemble:
 
         #   Local fluxes
         if iComponent==0:
-            local_FluxCb =  2*mu_b*Region.mesh.geoDiff_f[iBFaces]*nx2
-            local_FluxVb =  2*mu_b*Region.mesh.geoDiff_f[iBFaces]*(v_C*ny*nx+w_C*nz*nx)
+            local_FluxCb =  2*mu_b*geoDiff_b*nx2
+            local_FluxVb =  2*mu_b*geoDiff_b*(v_C*ny*nx+w_C*nz*nx)
         elif iComponent==1:
-            local_FluxCb =  2*mu_b*Region.mesh.geoDiff_f[iBFaces]*ny2
-            local_FluxVb =  2*mu_b*Region.mesh.geoDiff_f[iBFaces]*(u_C*nx*ny+w_C*nz*ny)
+            local_FluxCb =  2*mu_b*geoDiff_b*ny2
+            local_FluxVb =  2*mu_b*geoDiff_b*(u_C*nx*ny+w_C*nz*ny)
         elif iComponent==2:
-            local_FluxCb =  2*mu_b*Region.mesh.geoDiff_f[iBFaces]*nz2
-            local_FluxVb =  2*mu_b*Region.mesh.geoDiff_f[iBFaces]*(u_C*nx*nz+v_C*ny*nz)
+            local_FluxCb =  2*mu_b*geoDiff_b*nz2
+            local_FluxVb =  2*mu_b*geoDiff_b*(u_C*nx*nz+v_C*ny*nz)
 
         #   Update global fluxes
-        # local_FluxFb =np.zeros(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces'])
-
-        Region.fluxes.FluxCf[self.theEquationName][iBFaces] += local_FluxCb
-        # Region.fluxes.FluxFf[iBFaces] = local_FluxFb
-        Region.fluxes.FluxVf[self.theEquationName][iBFaces] += local_FluxVb
-        Region.fluxes.FluxTf[self.theEquationName][iBFaces] += local_FluxCb*phi_C[:,iComponent] + local_FluxVb #+ local_FluxFb*U_b[:,iComponent]
+        Region.fluxes.FluxCf[self.theEquationName] = be.add_at(Region.fluxes.FluxCf[self.theEquationName], iBFaces, local_FluxCb)
+        Region.fluxes.FluxVf[self.theEquationName] = be.add_at(Region.fluxes.FluxVf[self.theEquationName], iBFaces, local_FluxVb)
+        Region.fluxes.FluxTf[self.theEquationName] = be.add_at(Region.fluxes.FluxTf[self.theEquationName], iBFaces, local_FluxCb*phi_C[:,iComponent] + local_FluxVb)
 
 
     def cfdAssembleStressTermSpecifiedValue(self,Region,iBPatch):
         #   Get info
         theEquationName=self.theEquationName
-        # iComponent=self.iComponent
-        iBFaces = range(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex'],Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']+Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces'])
+        iBFaces = np.array(range(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex'],Region.mesh.cfdBoundaryPatchesArray[iBPatch]['startFaceIndex']+Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces']))
         iBElements = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
-        # iBElements=[index - Region.mesh.numberOfElements for index in Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']]
         owners_b = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
 
-        # magSb = Region.mesh.faceAreas[iBFaces]
-        # wallDist_b = Region.mesh.wallDist[iBFaces]
-        #   Get required fields
-        mu_b = np.squeeze(Region.model.equations[self.theEquationName].gamma[owners_b])
+        #   Get required fields — 使用 .value 避免 Quantity 包装开销
+        gamma_val = Region.model.equations[self.theEquationName].gamma
+        mu_b = np.squeeze(gamma_val[owners_b])
+        geoDiff_b = Region.mesh.geoDiff_f[iBFaces]
 
         #   Local fluxes
-        local_FluxCb =  mu_b*Region.mesh.geoDiff_f[iBFaces]
+        local_FluxCb =  mu_b*geoDiff_b
         local_FluxFb = -local_FluxCb
-        #   Update global fluxes
-        # local_FluxVb = np.zeros(Region.mesh.cfdBoundaryPatchesArray[iBPatch]['numberOfBFaces'])
 
         #   Get fields
-        phi_C =Region.fluid[theEquationName].phi[owners_b,self.iComponent]
-        phi_b =Region.fluid[theEquationName].phi[iBElements,self.iComponent]
+        phi_val = Region.fluid[theEquationName].phi
+        phi_C = phi_val[owners_b,self.iComponent]
+        phi_b = phi_val[iBElements,self.iComponent]
 
-        Region.fluxes.FluxCf[self.theEquationName][iBFaces] += local_FluxCb
-        # Region.fluxes.FluxFf[self.theEquationName][iBFaces] += local_FluxFb
-        # Region.fluxes.FluxVf[self.theEquationName][iBFaces] += local_FluxVb
-        Region.fluxes.FluxTf[self.theEquationName][iBFaces] += local_FluxCb*phi_C+ local_FluxFb*phi_b #+ local_FluxVb
+        Region.fluxes.FluxCf[self.theEquationName] = be.add_at(Region.fluxes.FluxCf[self.theEquationName], iBFaces, local_FluxCb)
+        Region.fluxes.FluxTf[self.theEquationName] = be.add_at(Region.fluxes.FluxTf[self.theEquationName], iBFaces, local_FluxCb*phi_C+ local_FluxFb*phi_b)
 
 
     def cfdAssembleStressTermZeroGradientBC(self,Region,iBPatch):
@@ -1224,15 +1199,45 @@ class Assemble:
         #   Get fields
         rho = np.squeeze(Region.fluid['rho'].phi[:Region.mesh.numberOfElements])
         #   Get gravity
-        gi = Q_(Region.dictionaries.g['value'][iComponent],dm.acceleration_dim)
+        gi = Region.dictionaries.g['value'][iComponent]
         #   Update and store
-        Region.fluxes.FluxT[self.theEquationName] += rho*volumes*gi
+        Region.fluxes.FluxT[self.theEquationName] = Region.fluxes.FluxT[self.theEquationName] + rho*volumes*gi
  
     def cfdAssemblePressureGradientTerm(self,Region,*args):
         #   Get info and fields
         volumes = Region.mesh.elementVolumes
         p_grad = np.squeeze(Region.fluid['p'].Grad.phi[:Region.mesh.numberOfElements,self.iComponent])
         #   Update global fluxes
-        Region.fluxes.FluxT[self.theEquationName] += volumes*p_grad
+        Region.fluxes.FluxT[self.theEquationName] = Region.fluxes.FluxT[self.theEquationName] + volumes*p_grad
 
-    
+    def _check_equation_dimensions(self, Region):
+        """
+        轻量级量纲一致性检查。
+        在 cfdAssembleEquation 入口调用一次，验证方程的量纲设定是否一致。
+        所有数据均为 ndarray，不依赖 Quantity 对象。
+        
+        检查内容：
+        1. 场的量纲 × 方程系数量纲 == 通量量纲
+        2. 通量系数 (CoffeDim) 与场量纲的关系
+        """
+        eq = self.theEquation
+        field_dim = Region.fluid[self.theEquationName].dimension
+        flux_dims = Region.fluxes._flux_dims.get(self.theEquationName, {})
+
+        if not flux_dims:
+            return  # 无通量量纲信息，跳过
+
+        CoffeDim = flux_dims.get('CoffeDim')
+        FluxDim = flux_dims.get('Dim')
+
+        if CoffeDim is not None and FluxDim is not None:
+            # 检验：场量纲 × 系数量纲 == 通量量纲
+            expected_flux_dim = field_dim * CoffeDim
+            if expected_flux_dim != FluxDim:
+                raise ValueError(
+                    f"[量纲检查] 方程 '{self.theEquationName}' 量纲不一致:\n"
+                    f"  场量纲 ({self.theEquationName}): {field_dim}\n"
+                    f"  系数量纲 (CoffeDim): {CoffeDim}\n"
+                    f"  预期通量量纲 (field × CoffeDim): {expected_flux_dim}\n"
+                    f"  实际通量量纲 (Dim): {FluxDim}"
+                )

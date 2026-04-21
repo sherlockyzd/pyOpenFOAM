@@ -1,4 +1,5 @@
 import numpy as np
+from cfdtool.backend import be
 
 
 class Coefficients():
@@ -68,8 +69,8 @@ class Coefficients():
     #     if len(kwargs)==0:
         ## (list of lists) identical to polyMesh.elementNeighbours. Provides a list where each index represents an element in the domain. Each index has an associated list which contains the elements for which is shares a face (i.e. the neighbouring elements).
         ## array of the boundary condition contributions to the flux term.
-        self.bc=np.zeros((self.NumberOfElements),dtype=np.float64)
-        self.dphi=np.zeros((self.NumberOfElements),dtype=np.float64)
+        self.bc=be.zeros((self.NumberOfElements))
+        self.dphi=be.zeros((self.NumberOfElements))
         
 
     def _initialize_matrix_structure(self, Region):
@@ -166,28 +167,24 @@ class Coefficients():
         #  Routine Description:
         #    This function zeros the coefficients
         # --------------------------------------------------------------------------
-        # array of cell-centered contribution to the flux term. These are constants and constant diffusion coefficients and therefore act as 'coefficients' in the algebraic equations. See p. 229 Moukalled.
-        # array of the boundary condition contributions to the flux term.
-        self.bc.fill(0)
-        self.dphi.fill(0)
+        self.bc = be.zeros_like(self.bc)
+        self.dphi = be.zeros_like(self.dphi)
         self._A_sparse_needs_update = True
         if self.MatrixFormat == 'acnb':
-            self.ac.fill(0)
-            # flat anb 数组归零（anb[i] 是 flat 的视图，自动同步）
+            self.ac = be.zeros_like(self.ac)
             if hasattr(self, '_acnb_flat'):
-                self._acnb_flat.fill(0)
+                self._acnb_flat = be.zeros_like(self._acnb_flat)
             else:
                 for iElement in range(self.NumberOfElements):
-                    self.anb[iElement].fill(0)
+                    self.anb[iElement] = be.zeros_like(self.anb[iElement])
         elif self.MatrixFormat == 'ldu':
-            self.Diag.fill(0)
-            # reset the lower and upper lists
-            self.Lower.fill(0)
-            self.Upper.fill(0)
+            self.Diag = be.zeros_like(self.Diag)
+            self.Lower = be.zeros_like(self.Lower)
+            self.Upper = be.zeros_like(self.Upper)
         elif self.MatrixFormat == 'csr':
-            self.csrdata.fill(0)
+            self.csrdata = be.zeros_like(self.csrdata)
         elif self.MatrixFormat == 'coo':
-            self.coodata.fill(0)
+            self.coodata = be.zeros_like(self.coodata)
 
     def _assemble_csr_to_csr(self):
         """
@@ -335,20 +332,20 @@ class Coefficients():
     def _ldu_multiply(self, x):
         """LDU格式的高效矩阵乘法"""
         y = self.ac * x
-        np.add.at(y, self._lowerAddr, self.Upper * x[self._upperAddr])
-        np.add.at(y, self._upperAddr, self.Lower * x[self._lowerAddr])
+        y = be.add_at(y, self._lowerAddr, self.Upper * x[self._upperAddr])
+        y = be.add_at(y, self._upperAddr, self.Lower * x[self._lowerAddr])
         return y
 
     def _acnb_multiply(self, x):
         """ACNB格式的向量化矩阵乘法：利用 flat 数组和 np.add.at 替代 Python 循环"""
         y = self.ac * x
         # 对每个非对角元素: anb_data[j] * x[col_indices[j]]，然后 scatter 回对应行
-        np.add.at(y, self._acnb_row_idx, self._acnb_flat * x[self._acnb_col_idx])
+        y = be.add_at(y, self._acnb_row_idx, self._acnb_flat * x[self._acnb_col_idx])
         return y
 
     def _csr_multiply(self, x):
         """CSR格式的高效矩阵乘法"""
-        y = np.zeros(self.NumberOfElements, dtype=np.float64)
+        y = be.zeros(self.NumberOfElements)
         for i in range(self.NumberOfElements):
             start = self._indptr[i]
             end = self._indptr[i + 1]
@@ -357,8 +354,8 @@ class Coefficients():
     
     def _coo_multiply(self, x):
         """COO格式的高效矩阵乘法"""
-        y = np.zeros(self.NumberOfElements, dtype=np.float64)
-        np.add.at(y, self._row, self.coodata * x[self._col])
+        y = be.zeros(self.NumberOfElements)
+        y = be.add_at(y, self._row, self.coodata * x[self._col])
         return y
 
     def verify_matrix_properties(self):

@@ -1,8 +1,8 @@
 import cfdtool.IO as io
 import numpy as np
 import cfdtool.Math as mth
+from cfdtool.backend import be
 from dataclasses import dataclass, field
-from cfdtool.quantities import Quantity as Q_
 import cfdtool.dimensions as dm
 import cfdtool.Interpolate as interp
 
@@ -21,9 +21,9 @@ class Field(DimensionChecked):
     boundaryPatchRef: dict = field(default_factory=dict)
     iComponent: int = field(default=1)
     # 定义 Quantity 类型字段，
-    phi: Optional[Q_] = field(default=None, repr=False)
-    phi_old: Optional[Q_] = field(default=None, repr=False)
-    Grad: Optional[Q_] = field(default=None, repr=False)
+    phi: Optional[np.ndarray] = field(default=None, repr=False)
+    phi_old: Optional[np.ndarray] = field(default=None, repr=False)
+    Grad: Optional[np.ndarray] = field(default=None, repr=False)
     max: float = 0.0
     min: float = 0.0
     scale: float = 0.0
@@ -94,21 +94,19 @@ class Field(DimensionChecked):
             'phi_old': dimension,
         }
 
-        self.phi = Q_(
-                np.zeros((theInteriorArraySize + theBoundaryArraySize, self.iComponent)), 
-                dimension
-            )
-        #用于测试报错
-        # self.phi = Q_(
-        #         np.zeros((theInteriorArraySize + theBoundaryArraySize, self.iComponent)), 
-        #         dimension*dm.flux_dim
-        #     )
+
+        self.phi = be.zeros((theInteriorArraySize + theBoundaryArraySize, self.iComponent))
         # 调用基类的构造函数，此时 expected_dimensions 已经设置
         super().__init__()
         # 其他属性初始化
         self.cfdUpdateScale(Region)
-        self.phi_old =self.phi.copy()
+        self.phi_old = be.copy(self.phi)
 
+
+    @property
+    def dimension(self):
+        """返回该场的维度（Dimension 对象）。"""
+        return self.expected_dimensions.get('phi')
 
     def setDimensions(self,dimensions):
         self.dimensions=dimensions
@@ -116,16 +114,16 @@ class Field(DimensionChecked):
     def setPreviousTimeStep(self,*args):
         if args:
             iComponent = args[0]
-            self.phi_old.value[:,iComponent]=self.phi.value[:,iComponent].copy()
+            self.phi_old = be.set_at(self.phi_old, (slice(None), iComponent), be.copy(self.phi[:,iComponent]))
         else:
-            self.phi_old=self.phi.copy()
+            self.phi_old=be.copy(self.phi)
 
     def setPreviousIter(self,*args):
         if args:
             iComponent = args[0]
-            self.prevIter.value[:,iComponent]=self.phi.value[:,iComponent].copy()
+            self.prevIter = be.set_at(self.prevIter, (slice(None), iComponent), be.copy(self.phi[:,iComponent]))
         else:
-            self.prevIter=self.phi.copy()
+            self.prevIter=be.copy(self.phi)
         
     def cfdUpdateScale(self,Region):
         """Update the min, max and scale values of a field in Region
@@ -170,7 +168,7 @@ class Field(DimensionChecked):
 
         这个方法的目的是确保CFD模拟中的每个场都有一个合适的比例尺，这对于后续的计算和可视化是很重要的。通过比较场的最大值和其他相关参数，这个方法为每个场设置了一个合适的比例尺。
         """
-        phivalue=self.phi.value
+        phivalue=self.phi
         theMagnitude = mth.cfdMag(phivalue)
         
         try:
@@ -191,7 +189,7 @@ class Field(DimensionChecked):
             phiScale = max(phiMax,p_dyn)
 
         elif self.name=='U':
-            phiScale = max(Region.mesh.lengthScale.value,phiMax)
+            phiScale = max(Region.mesh.lengthScale,phiMax)
         else: 
             phiScale = phiMax
 
@@ -215,12 +213,13 @@ class Field(DimensionChecked):
     #==========================================================================
     #    Correct Fluid Field 更新场值
     #--------------------------------------------------------------------------
-        if np.any(np.isnan(Region.coefficients.dphi)) or np.any(np.isinf(Region.coefficients.dphi)):
-            raise ValueError("Quantity value contains invalid numbers (NaN or Inf).")
-        # 例如，检查值是否在合理范围内
-        min_val, max_val = -1e10, 1e10
-        if np.any(Region.coefficients.dphi < min_val) or np.any(Region.coefficients.dphi> max_val):
-            raise ValueError("Quantity value is out of the acceptable range.")
+        # 生产环境跳过 NaN/Inf/范围检查（每次两个全数组扫描代价高）
+        # 调试时取消下面注释
+        # if np.any(np.isnan(Region.coefficients.dphi)) or np.any(np.isinf(Region.coefficients.dphi)):
+        #     raise ValueError("Quantity value contains invalid numbers (NaN or Inf).")
+        # min_val, max_val = -1e10, 1e10
+        # if np.any(Region.coefficients.dphi < min_val) or np.any(Region.coefficients.dphi> max_val):
+        #     raise ValueError("Quantity value is out of the acceptable range.")
         self.cfdCorrectForInterior(Region,iComponent)
         self.cfdCorrectForBoundaryPatches(Region,iComponent)
 
@@ -229,9 +228,9 @@ class Field(DimensionChecked):
         if self.name=='p':
             self.setupPressureCorrection(Region)
             urfP=Region.dictionaries.fvSolution['relaxationFactors']['fields']['p']
-            self.phi[:theNumberOfElements,iComponent].value += urfP*Region.coefficients.dphi
+            self.phi = be.add_at(self.phi, (slice(None, theNumberOfElements), iComponent), urfP*Region.coefficients.dphi)
         else:
-            self.phi[:theNumberOfElements,iComponent].value += Region.coefficients.dphi
+            self.phi = be.add_at(self.phi, (slice(None, theNumberOfElements), iComponent), Region.coefficients.dphi)
 
     def setupPressureCorrection(self,Region):
         # Check if needs reference pressure
@@ -241,7 +240,7 @@ class Field(DimensionChecked):
             try:
                 pRefCell = int(Region.dictionaries.fvSolution[Region.Timesolver]['pRefCell'])
                 pRefValue = Region.coefficients.dphi[pRefCell]
-                Region.coefficients.dphi -= pRefValue  # 参考压力修正
+                Region.coefficients.dphi = Region.coefficients.dphi - pRefValue  # 参考压力修正
             except KeyError:
                 io.cfdError('pRefCell not found')
 
@@ -292,39 +291,27 @@ class Field(DimensionChecked):
         # Get info
         iBElements = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
         owners_b = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
-        # Sb = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['facesSf']
         n = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['facen']
-        # Get Vector Field at Boundary
-        # theVelocityField = cfdGetMeshField('U')
-        # U_C = Region.fluid['U'].phi
-        # Update field by imposing the parallel to wall component of velocity. This
-        # is done by removing the normal component
         phi_normal = mth.cfdDot(self.phi[owners_b,:],n)
-        self.phi[iBElements,iComponent] -=  phi_normal*n[:,iComponent]
-        # Store
-        # Region.fluid['U'].phi[iBElements,iComponent] = U_C[iBElements,iComponent]
+        self.phi = be.subtract_at(self.phi, (iBElements, iComponent), phi_normal*n[:,iComponent])
 
     def correctZeroGradient(self,Region,iBPatch,iComponent):
         # Get info
         iBElements = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
         iOwners = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
         # Copy value from owner cell
-        self.phi[iBElements, iComponent] = self.phi[iOwners, iComponent]
+        self.phi = be.set_at(self.phi, (iBElements, iComponent), self.phi[iOwners, iComponent])
 
     def correctSymmetry(self,Region,iBPatch,iComponent):
         # Get info
         iBElements = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
         owners_b = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
-        # Sb = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['facesSf']
         if iComponent !=-1:
             n = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['facen']
-            # Get Vector Field at Boundary
-            # # Update field by imposing the parallel to wall component of velocity. This
-            # # is done by removing the normal component
             phi_normal = mth.cfdDot(self.phi[owners_b,:],n)
-            self.phi[iBElements,iComponent] -=  phi_normal*n[:,iComponent]
+            self.phi = be.subtract_at(self.phi, (iBElements, iComponent), phi_normal*n[:,iComponent])
         else:
-            self.phi[iBElements] =  self.phi[owners_b]
+            self.phi = be.set_at(self.phi, iBElements, self.phi[owners_b])
 
     def updateFieldForAllBoundaryPatches(self,Region):
         """Updates the field values of the faces on each of the boundary patches.
@@ -447,18 +434,18 @@ class Field(DimensionChecked):
     def updateFixedValue(self,Region,iBPatch):
         iBElements=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
         value = self.boundaryPatchRef[iBPatch]['value']
-        self.phi.value[iBElements] = value
+        self.phi = be.set_at(self.phi, iBElements, value)
 
     def updateNoSlip(self,Region,iBPatch):
         iBElements=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
         # value = self.boundaryPatchRef[iBPatch]['value']
-        self.phi.value[iBElements].fill(0)
+        self.phi = be.set_at(self.phi, iBElements, be.zeros_like(self.phi[iBElements]))
 
     def updateZeroGradient(self,Region,iBPatch):
         iBElements=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['iBElements']
         #elements that own the boundary faces
         owners_b = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['owners_b']
-        self.phi.value[iBElements] = self.phi.value[owners_b] 
+        self.phi = be.set_at(self.phi, iBElements, self.phi[owners_b])
 
             
     def updateSymmetry(self,Region,iBPatch):
@@ -472,15 +459,12 @@ class Field(DimensionChecked):
         # normSb = Region.mesh.cfdBoundaryPatchesArray[iBPatch]['normSb']
         #normalize Sb components and horizontally stack them into the columns of array n
         if self.iComponent==1:
-            self.phi.value[iBElements]=self.phi.value[owners_b]
+            self.phi = be.set_at(self.phi, iBElements, self.phi[owners_b])
         else:
             n=Region.mesh.cfdBoundaryPatchesArray[iBPatch]['facen']
-            # np.column_stack((self.Sb[:,0]/self.normSb,self.Sb[:,1]/self.normSb,self.Sb[:,2]/self.normSb))
-            #perform elementwise multiplication of owner's values with boundary face normals
-            U_normal_cfdMag=mth.cfdDot(self.phi.value[owners_b],n)
-            #seems to do the same thing a the above line without the .sum(1)
+            U_normal_cfdMag=mth.cfdDot(self.phi[owners_b],n)
             U_normal=np.column_stack((U_normal_cfdMag*n[:,0],U_normal_cfdMag*n[:,1],U_normal_cfdMag*n[:,2]))
-            self.phi.value[iBElements]=self.phi.value[owners_b]-U_normal
+            self.phi = be.set_at(self.phi, iBElements, self.phi[owners_b]-U_normal)
 
     def cfdCorrectNSFields(self,Region,*args):
         # ==========================================================================
@@ -490,11 +474,11 @@ class Field(DimensionChecked):
             theNumberOfElements = Region.coefficients.NumberOfElements
             # Get fields
             DU  =Region.fluid['DU'].phi[:theNumberOfElements,:]
-            ppGrad = np.squeeze(Region.fluid['pprime'].Grad.phi[:theNumberOfElements,:])
+            ppGrad = be.squeeze(Region.fluid['pprime'].Grad.phi[:theNumberOfElements,:])
             #  Calculate Dc*gradP
             DUPPGRAD = DU*ppGrad
             # Correct velocity
-            self.phi[:theNumberOfElements,:] -= DUPPGRAD
+            self.phi = be.subtract_at(self.phi, (slice(None, theNumberOfElements), slice(None)), DUPPGRAD)
             for iComponent in range(3):
                 self.cfdCorrectForBoundaryPatches(Region,iComponent)
             # self.cfdfieldUpdateGradient_Scale(Region)
@@ -507,7 +491,7 @@ class Field(DimensionChecked):
             U_f=interp.cfdInterpolateFromElementsToInteriorFaces(Region,'linear',DUPPGRAD)
             rho_f=interp.cfdInterpolateFromElementsToInteriorFaces(Region,'linear',Region.fluid['rho'].phi[:theNumberOfElements])
             Sf=Region.mesh.faceSf[:theNumberOfInteriorFaces,:]
-            Region.fluid['mdot_f'].phi[:theNumberOfInteriorFaces] -= rho_f*mth.cfdDot(Sf, U_f)[:, np.newaxis]
+            Region.fluid['mdot_f'].phi = be.subtract_at(Region.fluid['mdot_f'].phi, slice(None, theNumberOfInteriorFaces), rho_f*mth.cfdDot(Sf, U_f)[:, np.newaxis])
             # 0.75*(
             #     Region.fluxes.FluxCf[self.name][:theNumberOfInteriorFaces][:,None]*Region.fluid['pprime'].phi[owners_f]
             #     +Region.fluxes.FluxFf[self.name][:theNumberOfInteriorFaces][:,None]*Region.fluid['pprime'].phi[neighbours_f])  # Update mdot_f

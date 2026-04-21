@@ -8,6 +8,7 @@ import cfdtool.Time as time
 import pyFVM.Assemble as assemble
 import pyFVM.Model as model
 import cfdtool.Solve as solve
+from cfdtool.backend import be
 import cfdtool.cfdPlot as plt
 import config as cfg
 
@@ -60,11 +61,14 @@ class Region():
             self.time.cfdPrintCurrentTime()
             self.SolveEquations() #根据SIMPLE或PISO算法求解方程
             self.cfdUpdate()
-            plt.plotResidualHistory(self)
+            # 残差图延迟到模拟结束后绘制，避免每步 matplotlib 重绘开销（~0.35s/步）
+            # plt.plotResidualHistory(self)
             self.time.cfdUpdateRunTime()
             if self.time.cfdDoWriteTime():            
                 io.cfdWriteOpenFoamParaViewData(self)
                 pass
+        # 模拟结束后绘制一次残差历史
+        plt.plotResidualHistory(self)
 
     def cfdUpdate(self):
         for iTerm in self.model.equations:
@@ -156,7 +160,7 @@ class Region():
 
     def cfdCorrectNSSystemFields(self):
         theNumberOfElements=self.mesh.numberOfElements
-        self.fluid['pprime'].phi.value[:theNumberOfElements] = self.coefficients.dphi[:,None]
+        self.fluid['pprime'].phi = be.set_at(self.fluid['pprime'].phi, slice(None, theNumberOfElements), self.coefficients.dphi[:,None])
         self.fluid['pprime'].cfdfieldUpdate(self)
         self.fluid['pprime'].cfdfieldUpdateGradient(self)
         self.fluid['U'].cfdCorrectNSFields(self)

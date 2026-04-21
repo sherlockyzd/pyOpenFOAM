@@ -122,7 +122,7 @@ class Model():
         pass
 
     def DefineDUfield(self,Region,Name,*args):
-        Dp_dim=Region.fluid['p'].Grad.phi.dimension.copy()
+        Dp_dim=Region.fluid['p'].Grad.dimension.copy()
         DU_dim=dm.velocity_dim/Dp_dim
         Region.fluid[Name]=field.Field(Region,Name,'volVectorField',DU_dim)
         # Region.fluid[Name].dimensions=[-1,3,1,0,0,0,0]
@@ -130,7 +130,7 @@ class Model():
 
 
     def DefineDUSffield(self,Region,Name,*args):
-        DU_dim=Region.fluid['DU'].phi.dimension.copy()
+        DU_dim=Region.fluid['DU'].dimension.copy()
         DUSf_dim=DU_dim*dm.area_dim
         Region.fluid[Name]=field.Field(Region,Name,'surfaceVectorField',DUSf_dim)
         Region.fluid[Name].dimensions=[-1,5,1,0,0,0,0]

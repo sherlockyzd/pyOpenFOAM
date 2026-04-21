@@ -2,6 +2,7 @@ import numpy as np
 # import cfdtool.IO as io
 import cfdtool.Math as mth
 import cfdtool.Interpolate as interp
+from cfdtool.backend import be
 
 
 def cfdRhieChowValue(fieldName,Region):
@@ -16,11 +17,11 @@ def cfdRhieChowValue(fieldName,Region):
     CF = Region.mesh.interiorFaceCF
 
     ## face gradient matrix
-    gradPhi=np.squeeze(Region.fluid[fieldName].Grad.phi[:numberOfInteriorFaces,:])
+    gradPhi=be.squeeze(Region.fluid[fieldName].Grad.phi[:numberOfInteriorFaces,:])
     grad_f=(1-g_f)[:,None]*gradPhi[neighbours_f,:]+g_f[:,None]*gradPhi[owners_f,:]
     # % ScfdUrface-normal gradient
     dcfdMag = mth.cfdMag(CF)
-    e_CF = mth.cfdUnit(CF.value)
+    e_CF = mth.cfdUnit(CF)
     # local_avg_grad=(grad_f*e_CF).sum(1)*e_CF
     # % Get pressure field and interpolate to faces
     phi = cfdGetSubArrayForInterior(fieldName,Region)
@@ -81,7 +82,7 @@ def cfdGetSubArrayForBoundaryPatch(theFieldName, iBPatch, Region,*args):
             phi_b = Region.fluid[theFieldName].phi[iBElements,iComponent]
         else:
             phi_b = Region.fluid[theFieldName].phi[iBElements,:]
-    return np.squeeze(phi_b)
+    return be.squeeze(phi_b)
 
 def cfdGetGradientSubArrayForBoundaryPatch(theFieldName, iBPatch, Region,*args):
 # %==========================================================================
@@ -108,4 +109,4 @@ def cfdGetGradientSubArrayForBoundaryPatch(theFieldName, iBPatch, Region,*args):
         else:
             phiGrad_b = Region.fluid[theFieldName].Grad.phi[iBElements, :, :]
 
-    return np.squeeze(phiGrad_b)
+    return be.squeeze(phiGrad_b)

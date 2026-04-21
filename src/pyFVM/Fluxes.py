@@ -1,6 +1,6 @@
 import numpy as np
-from cfdtool.quantities import Quantity as Q_
 import cfdtool.dimensions as dm
+from cfdtool.backend import be
 
 class Fluxes():
     
@@ -48,6 +48,7 @@ class Fluxes():
     def setupFluxes(self,Region,**kwargs):
         theNumberOfFaces=Region.mesh.numberOfFaces
         theNumberOfElements=Region.mesh.numberOfElements
+
         self.FluxCf = {}  # 面通量的线性化系数，用于单元格 C（感兴趣单元格）
         self.FluxFf = {}  # 面通量的线性化系数，用于邻近单元格
         self.FluxVf = {}  # 面通量的非线性系数
@@ -57,45 +58,48 @@ class Fluxes():
         self.FluxV = {}   # 体积通量，等于源值乘以单元格体积（Q_C^phi * Vc）
         self.FluxT = {}   # 总体积通量
         self.FluxC_old = {}  # 上一时间步的体积通量
+        # 存储每个方程通量的维度信息（用于量纲检查）
+        self._flux_dims = {}
         # 为每个方程初始化通量
         for equation_name in Region.model.equations:
             CoffeDim = Region.model.equations[equation_name].CoffeDim
-            Dim=Region.fluid[equation_name].phi.dimension*CoffeDim
+            Dim=Region.fluid[equation_name].dimension*CoffeDim
+            self._flux_dims[equation_name] = {'CoffeDim': CoffeDim, 'Dim': Dim}
             #值保存在面心上
             #face fluxes
             # face flux linearization coefficients for cell C (cell of interest)
-            self.FluxCf[equation_name]=Q_(np.zeros((theNumberOfFaces),dtype=float),CoffeDim)
+            self.FluxCf[equation_name]=be.zeros((theNumberOfFaces))
             # face flux linearization coefficients for neighbouring cell
-            self.FluxFf[equation_name]=Q_(np.zeros((theNumberOfFaces),dtype=float),CoffeDim)
+            self.FluxFf[equation_name]=be.zeros((theNumberOfFaces))
             # non-linear face coefficients 
-            self.FluxVf[equation_name]=Q_(np.zeros((theNumberOfFaces),dtype=float),Dim)
+            self.FluxVf[equation_name]=be.zeros((theNumberOfFaces))
             # total face flux (equal to FluxCf*phiC+FluxFf*phiF+FluxVf)
-            self.FluxTf[equation_name]=Q_(np.zeros((theNumberOfFaces),dtype=float),Dim)
+            self.FluxTf[equation_name]=be.zeros((theNumberOfFaces))
 
             #值保存在体心上
             #Volume fluxes (treated as source terms)
-            self.FluxC[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),CoffeDim)
+            self.FluxC[equation_name]=be.zeros((theNumberOfElements))
             # volume fluxes from previous time step
-            self.FluxC_old[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),CoffeDim)
+            self.FluxC_old[equation_name]=be.zeros((theNumberOfElements))
             # volume flux equal to source value times cell volume (Q_{C}^{phi} * Vc)
-            self.FluxV[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),Dim)
-            self.FluxT[equation_name]=Q_(np.zeros((theNumberOfElements),dtype=float),Dim)
+            self.FluxV[equation_name]=be.zeros((theNumberOfElements))
+            self.FluxT[equation_name]=be.zeros((theNumberOfElements))
 
         print('fluxes success!')
     
     def cfdZeroElementFLUXCoefficients(self,equation_name):
         # print('Inside cfdZeroElementFLUXCoefficients')
-        self.FluxC[equation_name].value.fill(0)
-        self.FluxV[equation_name].value.fill(0)
-        self.FluxT[equation_name].value.fill(0)
-        self.FluxC_old[equation_name].value.fill(0)
+        self.FluxC[equation_name] = be.zeros_like(self.FluxC[equation_name])
+        self.FluxV[equation_name] = be.zeros_like(self.FluxV[equation_name])
+        self.FluxT[equation_name] = be.zeros_like(self.FluxT[equation_name])
+        self.FluxC_old[equation_name] = be.zeros_like(self.FluxC_old[equation_name])
 
     def cfdZeroFaceFLUXCoefficients(self,equation_name):
         # print('Inside cfdZeroFaceFLUXCoefficients')
-        self.FluxCf[equation_name].value.fill(0)
-        self.FluxVf[equation_name].value.fill(0)
-        self.FluxTf[equation_name].value.fill(0)
-        self.FluxFf[equation_name].value.fill(0)
+        self.FluxCf[equation_name] = be.zeros_like(self.FluxCf[equation_name])
+        self.FluxVf[equation_name] = be.zeros_like(self.FluxVf[equation_name])
+        self.FluxTf[equation_name] = be.zeros_like(self.FluxTf[equation_name])
+        self.FluxFf[equation_name] = be.zeros_like(self.FluxFf[equation_name])
 
 
 

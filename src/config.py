@@ -1,4 +1,10 @@
-# config.py
-ENABLE_DIMENSION_CHECK = False  # 生产运行关闭量纲检查，调试时改为 True
-cfdIsCompressible=False
-pp_nonlinear_corrected=False
+# config.py — pyOpenFOAM 全局配置
+
+# 流动类型：True=可压缩，False=不可压缩
+cfdIsCompressible = False
+# 非线性修正
+pp_nonlinear_corrected = False
+
+# 数组计算后端：'numpy'（默认）| 'jax'（需 pip install jax jaxlib）
+cfdBackend = 'numpy'
+# cfdBackend = 'jax'  # 切换到 JAX 后端进行测试

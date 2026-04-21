@@ -8,7 +8,7 @@ src_path = os.path.abspath(os.path.join(current_dir,'..', 'src'))
 print(f"src 路径: {src_path}")  # 打印路径，确保正确
 sys.path.insert(0, src_path)
 
-from cfdtool.quantities import Quantity as Q_
+from cfdtool.quantities import Q_
 import cfdtool.dimensions as dm
 import cfdtool.Math as mth
 

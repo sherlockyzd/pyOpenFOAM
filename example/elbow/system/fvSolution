@@ -17,6 +17,26 @@ FoamFile
 
 solvers
 {
+    // p
+    // {
+    //     solver          PETSc;          // 使用PETSc求解器
+    //     petsc_solver    cg;          // GMRES Krylov方法 (gmres, cg, bicgstab)  
+    //     preconditioner  ilu;            // ILU预处理器(GPU兼容，稳定可靠)
+    //     use_gpu         false;           // 启用GPU加速矩阵和向量
+    //     tolerance       1e-6;
+    //     relTol          0.01;
+    //     maxIter         1000;
+    // }
+
+    // U
+    // {
+    //     solver          PETSc;
+    //     petsc_solver    bicgstab;       // BiCGSTAB对非对称矩阵效果好
+    //     preconditioner  ilu;            // ILU预处理器
+    //     tolerance       1e-6;
+    //     relTol          0.1;
+    //     maxIter         1000;
+    // }
     p
     {
         solver          PCG;
@@ -35,14 +55,14 @@ solvers
         maxIter         100;
     }
 
-    T
-    {
-        solver          smoothSolver;
-        smoother        DILU;
-        tolerance       1e-05;
-        relTol          0;
-        maxIter         100;
-    }
+    // T
+    // {
+    //     solver          smoothSolver;
+    //     smoother        DILU;
+    //     tolerance       1e-05;
+    //     relTol          0;
+    //     maxIter         100;
+    // }
 }
 
 SIMPLE

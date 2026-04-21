@@ -42,7 +42,7 @@ class GeometricPartitioner(MeshPartitioner):
             return np.zeros(n_elements, dtype=np.int32)
         
         if hasattr(mesh, 'elementCentroids'):
-            centroids = mesh.elementCentroids.value
+            centroids = mesh.elementCentroids
             # 找到变化最大的方向
             ranges = np.max(centroids, axis=0) - np.min(centroids, axis=0)
             max_dir = np.argmax(ranges)
@@ -149,7 +149,7 @@ class METISPartitioner(MeshPartitioner):
         # 单元权重（基于体积）
         if hasattr(mesh, 'elementVolumes'):
             # 将体积归一化为整数权重
-            volumes = mesh.elementVolumes.value
+            volumes = mesh.elementVolumes
             max_vol = np.max(volumes)
             min_vol = np.min(volumes)
             

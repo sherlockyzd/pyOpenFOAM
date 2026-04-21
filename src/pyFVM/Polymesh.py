@@ -1,7 +1,6 @@
 import numpy as np
 import cfdtool.IO as io
 import cfdtool.Math as mth
-from cfdtool.quantities import Quantity as Q_
 import cfdtool.dimensions as dm
 
 class Polymesh():
@@ -142,7 +141,7 @@ class Polymesh():
     def cfdGeometricLengthScale(self):
         # Calculates the geometric length scale of the mesh. 
         # Length scale = [sum(element volume)]^(1/3)
-        self.totalVolume = Q_(np.sum(self.elementVolumes.value),dm.volume_dim)
+        self.totalVolume = np.sum(self.elementVolumes)
         self.lengthScale = self.totalVolume**(1/3)
         
     def cfdReadPointsFile(self):
@@ -1024,23 +1023,23 @@ class Polymesh():
 
         ## Linear weight of distance from cell center to face
         self.faceWeights = np.zeros(self.numberOfFaces,dtype=float)
-        self.faceCF = Q_(np.zeros((self.numberOfFaces, 3),dtype=float),dm.length_dim)
+        self.faceCF = np.zeros((self.numberOfFaces, 3),dtype=float)
         self.faceCFn = np.zeros((self.numberOfFaces, 3),dtype=float)
-        self.faceCf = Q_(np.zeros((self.numberOfFaces, 3),dtype=float),dm.length_dim)
-        self.faceFf = Q_(np.zeros((self.numberOfFaces, 3),dtype=float),dm.length_dim)
-        self.faceDist = Q_(np.zeros(self.numberOfFaces,dtype=float),dm.length_dim)
-        self.wallDistLimited = Q_(np.zeros(self.numberOfFaces,dtype=float),dm.length_dim)
-        self.geoDiff_f = Q_(np.zeros(self.numberOfFaces,dtype=float),dm.length_dim)
+        self.faceCf = np.zeros((self.numberOfFaces, 3),dtype=float)
+        self.faceFf = np.zeros((self.numberOfFaces, 3),dtype=float)
+        self.faceDist = np.zeros(self.numberOfFaces,dtype=float)
+        self.wallDistLimited = np.zeros(self.numberOfFaces,dtype=float)
+        self.geoDiff_f = np.zeros(self.numberOfFaces,dtype=float)
 
-        self.faceEf = Q_(np.zeros((self.numberOfInteriorFaces, 3),dtype=float),dm.area_dim)
-        self.faceTf = Q_(np.zeros((self.numberOfInteriorFaces, 3),dtype=float),dm.area_dim)
+        self.faceEf = np.zeros((self.numberOfInteriorFaces, 3),dtype=float)
+        self.faceTf = np.zeros((self.numberOfInteriorFaces, 3),dtype=float)
 
-        self.elementCentroids = Q_(np.zeros((self.numberOfElements, 3),dtype=float),dm.length_dim)
-        self.elementVolumes = Q_(np.zeros(self.numberOfElements,dtype=float),dm.volume_dim)
+        self.elementCentroids = np.zeros((self.numberOfElements, 3),dtype=float)
+        self.elementVolumes = np.zeros(self.numberOfElements,dtype=float)
 
-        self.faceCentroids = Q_(np.zeros((self.numberOfFaces, 3),dtype=float),dm.length_dim)  # 假设每个面心是一个3D向量
-        self.faceSf = Q_(np.zeros((self.numberOfFaces, 3),dtype=float),dm.area_dim)         # 假设每个面法向量是一个3D向量
-        self.faceAreas = Q_(np.zeros(self.numberOfFaces,dtype=float),dm.area_dim)           # 假设每个面面积是一个标量    
+        self.faceCentroids = np.zeros((self.numberOfFaces, 3),dtype=float)  # 假设每个面心是一个3D向量
+        self.faceSf = np.zeros((self.numberOfFaces, 3),dtype=float)         # 假设每个面法向量是一个3D向量
+        self.faceAreas = np.zeros(self.numberOfFaces,dtype=float)           # 假设每个面面积是一个标量    
         
         #find cell with largest number of points
         # maxPoints=len(max(self.faceNodes, key=len))
@@ -1205,11 +1204,11 @@ class Polymesh():
         nonzero = face_areas_value > 0
         face_centroids_value[nonzero] /= face_areas_value[nonzero, np.newaxis]
 
-        self.faceCentroids.value = face_centroids_value
-        self.faceSf.value = face_Sf_value
-        self.faceAreas.value = face_areas_value
+        self.faceCentroids = face_centroids_value
+        self.faceSf = face_Sf_value
+        self.faceAreas = face_areas_value
         
-        self.facen=mth.cfdUnit(self.faceSf.value)
+        self.facen=mth.cfdUnit(self.faceSf)
         """
         Calculate:
             -element centroids (elementCentroids)
@@ -1232,7 +1231,7 @@ class Polymesh():
         elem_nfaces = np.array([len(self.elementFaces[i]) for i in range(self.numberOfElements)], dtype=float)
         
         # Step 2: 计算每个单元的粗糙中心 (面质心的均值)
-        fc = self.faceCentroids.value[flat_face]  # (total_elem_faces, 3)
+        fc = self.faceCentroids[flat_face]  # (total_elem_faces, 3)
         # 用 np.add.at 聚合面质心，再除以面数
         elem_fc_sum = np.zeros((self.numberOfElements, 3), dtype=float)
         np.add.at(elem_fc_sum, flat_elem, fc)
@@ -1244,10 +1243,10 @@ class Polymesh():
         faceSign[~is_owner] = -1.0
         
         # Step 4: 批量计算每个面的体积贡献
-        Cf = self.faceCentroids.value[flat_face] - elem_local_centre[flat_elem]  # (total, 3)
-        signed_Sf = faceSign[:, np.newaxis] * self.faceSf.value[flat_face]  # (total, 3)
+        Cf = self.faceCentroids[flat_face] - elem_local_centre[flat_elem]  # (total, 3)
+        signed_Sf = faceSign[:, np.newaxis] * self.faceSf[flat_face]  # (total, 3)
         localVolume = np.sum(signed_Sf * Cf, axis=1) / 3.0  # (total,)
-        localCentroid = 0.75 * self.faceCentroids.value[flat_face] + 0.25 * elem_local_centre[flat_elem]  # (total, 3)
+        localCentroid = 0.75 * self.faceCentroids[flat_face] + 0.25 * elem_local_centre[flat_elem]  # (total, 3)
         
         # Step 5: scatter 回单元
         elem_vol_centroid_sum = np.zeros((self.numberOfElements, 3), dtype=float)
@@ -1257,34 +1256,34 @@ class Polymesh():
         
         # Step 6: 最终结果
         nonzero_vol = elem_vol_sum > 0
-        self.elementCentroids.value[nonzero_vol] = elem_vol_centroid_sum[nonzero_vol] / elem_vol_sum[nonzero_vol, np.newaxis]
-        self.elementVolumes.value = elem_vol_sum
+        self.elementCentroids[nonzero_vol] = elem_vol_centroid_sum[nonzero_vol] / elem_vol_sum[nonzero_vol, np.newaxis]
+        self.elementVolumes = elem_vol_sum
         
         #计算内部面与单元的相对几何属性
         n=self.facen[:self.numberOfInteriorFaces]
         own=self.owners[:self.numberOfInteriorFaces]
         nei=self.neighbours[:self.numberOfInteriorFaces]
         self.faceCF[:self.numberOfInteriorFaces]=self.elementCentroids[nei]-self.elementCentroids[own]
-        self.faceDist.value[:self.numberOfInteriorFaces]=np.linalg.norm(self.faceCF.value[:self.numberOfInteriorFaces],axis=1)
-        nE= self.faceCF.value[:self.numberOfInteriorFaces]/self.faceDist.value[:self.numberOfInteriorFaces][:, np.newaxis]
+        self.faceDist[:self.numberOfInteriorFaces]=np.linalg.norm(self.faceCF[:self.numberOfInteriorFaces],axis=1)
+        nE= self.faceCF[:self.numberOfInteriorFaces]/self.faceDist[:self.numberOfInteriorFaces][:, np.newaxis]
         self.faceCFn[:self.numberOfInteriorFaces]=nE
         if self.OrthogonalCorrectionMethod=='Minimum'or self.OrthogonalCorrectionMethod=='minimum'or self.OrthogonalCorrectionMethod=='corrected':
-            facemagEf=mth.cfdDot(self.faceSf.value[:self.numberOfInteriorFaces],nE)
-            self.geoDiff_f.value[:self.numberOfInteriorFaces]=facemagEf/self.faceDist.value[:self.numberOfInteriorFaces]
-            self.faceEf.value[:self.numberOfInteriorFaces]=facemagEf[:, np.newaxis]*nE
+            facemagEf=mth.cfdDot(self.faceSf[:self.numberOfInteriorFaces],nE)
+            self.geoDiff_f[:self.numberOfInteriorFaces]=facemagEf/self.faceDist[:self.numberOfInteriorFaces]
+            self.faceEf[:self.numberOfInteriorFaces]=facemagEf[:, np.newaxis]*nE
         elif self.OrthogonalCorrectionMethod=='Orthogonal'or self.OrthogonalCorrectionMethod=='orthogonal':
-            self.faceEf.value[:self.numberOfInteriorFaces]=self.faceAreas.value[:self.numberOfInteriorFaces, np.newaxis]*nE
-            self.geoDiff_f.value[:self.numberOfInteriorFaces]=self.faceAreas.value[:self.numberOfInteriorFaces]/self.faceDist.value[:self.numberOfInteriorFaces]
+            self.faceEf[:self.numberOfInteriorFaces]=self.faceAreas[:self.numberOfInteriorFaces, np.newaxis]*nE
+            self.geoDiff_f[:self.numberOfInteriorFaces]=self.faceAreas[:self.numberOfInteriorFaces]/self.faceDist[:self.numberOfInteriorFaces]
         elif self.OrthogonalCorrectionMethod=='OverRelaxed'or self.OrthogonalCorrectionMethod=='overRelaxed':
-            facemagEf=self.faceAreas.value[:self.numberOfInteriorFaces]*self.faceAreas.value[:self.numberOfInteriorFaces]/mth.cfdDot(self.faceSf.value[:self.numberOfInteriorFaces],nE)
-            self.geoDiff_f.value[:self.numberOfInteriorFaces]=facemagEf/self.faceDist.value[:self.numberOfInteriorFaces]
-            self.faceEf.value[:self.numberOfInteriorFaces]=facemagEf[:, np.newaxis]*nE
+            facemagEf=self.faceAreas[:self.numberOfInteriorFaces]*self.faceAreas[:self.numberOfInteriorFaces]/mth.cfdDot(self.faceSf[:self.numberOfInteriorFaces],nE)
+            self.geoDiff_f[:self.numberOfInteriorFaces]=facemagEf/self.faceDist[:self.numberOfInteriorFaces]
+            self.faceEf[:self.numberOfInteriorFaces]=facemagEf[:, np.newaxis]*nE
         else:
             io.cfdError('Region.mesh.OrthogonalCorrectionMethod not exist')
         self.faceTf[:self.numberOfInteriorFaces]=self.faceSf[:self.numberOfInteriorFaces]-self.faceEf[:self.numberOfInteriorFaces]
         self.faceCf[:self.numberOfInteriorFaces]=self.faceCentroids[:self.numberOfInteriorFaces]-self.elementCentroids[own]
         self.faceFf[:self.numberOfInteriorFaces]=self.faceCentroids[:self.numberOfInteriorFaces]-self.elementCentroids[nei]
-        self.faceWeights[:self.numberOfInteriorFaces]=-mth.cfdDot(self.faceFf.value[:self.numberOfInteriorFaces],n)/mth.cfdDot(self.faceCF.value[:self.numberOfInteriorFaces],n)
+        self.faceWeights[:self.numberOfInteriorFaces]=-mth.cfdDot(self.faceFf[:self.numberOfInteriorFaces],n)/mth.cfdDot(self.faceCF[:self.numberOfInteriorFaces],n)
 
         #计算外部面与单元的相对几何属性
         n=self.facen[self.numberOfInteriorFaces:]
@@ -1293,9 +1292,9 @@ class Polymesh():
         self.faceCF[self.numberOfInteriorFaces:]=self.faceCentroids[self.numberOfInteriorFaces:]-self.elementCentroids[own]
         self.faceCf[self.numberOfInteriorFaces:]=self.faceCF[self.numberOfInteriorFaces:]
         self.faceWeights[self.numberOfInteriorFaces:]=1
-        self.faceDist.value[self.numberOfInteriorFaces:]=mth.cfdDot(self.faceCf.value[self.numberOfInteriorFaces:], n)
+        self.faceDist[self.numberOfInteriorFaces:]=mth.cfdDot(self.faceCf[self.numberOfInteriorFaces:], n)
         self.geoDiff_f[self.numberOfInteriorFaces:]=self.faceAreas[self.numberOfInteriorFaces:]/self.faceDist[self.numberOfInteriorFaces:]
-        self.wallDistLimited.value[self.numberOfInteriorFaces:]=np.maximum(self.faceDist.value[self.numberOfInteriorFaces:], 0.05*np.linalg.norm(self.faceCf.value[self.numberOfInteriorFaces:],axis=1))
+        self.wallDistLimited[self.numberOfInteriorFaces:]=np.maximum(self.faceDist[self.numberOfInteriorFaces:], 0.05*np.linalg.norm(self.faceCf[self.numberOfInteriorFaces:],axis=1))
 
         # 确保权重在合理范围内
         if not np.all((self.faceWeights >= 0) & (self.faceWeights <= 1)):

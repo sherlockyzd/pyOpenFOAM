@@ -28,7 +28,7 @@ def initializeMdotFromU(Region):
     Region.fluid['mdot_f'].phi = cal_flux(Region.fluid['U'].phi, Region.fluid['rho'].phi, Region) # 形状: (nFaces, 1)
     
     # 检查 phi 是否包含非有限值（如 NaN 或无穷大）
-    if not np.all(np.isfinite(Region.fluid['mdot_f'].phi.value)):
+    if not np.all(np.isfinite(Region.fluid['mdot_f'].phi)):
         io.cfdError('计算得到的质量流量 phi 包含非有限值') 
 
 def cal_flux(U_phi,rho_phi,Region):

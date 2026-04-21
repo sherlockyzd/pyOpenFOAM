@@ -1,21 +1,7 @@
 # quantities.py
 import numpy as np
-from config import ENABLE_DIMENSION_CHECK
 from cfdtool.dimensions import Dimension,dimless
 from typing import Callable, Any
-
-# === 高频量纲运算的内联快速路径（避免 Dimension 类方法调用开销） ===
-def _dim_eq_fast(d1: 'Dimension', d2: 'Dimension') -> bool:
-    """快速量纲相等判断（直接比较底层 numpy 数组）"""
-    return np.array_equal(d1._value, d2._value)
-
-def _dim_mul_fast(d1: 'Dimension', d2: 'Dimension') -> 'Dimension':
-    """快速量纲乘法（直接操作底层数组，避免 __mul__ 方法分发）"""
-    return Dimension(d1._value + d2._value)
-
-def _dim_div_fast(d1: 'Dimension', d2: 'Dimension') -> 'Dimension':
-    """快速量纲除法"""
-    return Dimension(d1._value - d2._value)
 
 class Quantity:
     """
@@ -102,7 +88,7 @@ class Quantity:
         return self.__dimension
     
     def _check_dimension(self, other):
-        if ENABLE_DIMENSION_CHECK and self.dimension != other.dimension:
+        if self.dimension != other.dimension:
             raise ValueError(
                 f"无法与不同量纲的 Quantity 对象相加/相减：{self.dimension} 和 {other.dimension}。"
             )
@@ -111,48 +97,61 @@ class Quantity:
         if isinstance(other, Quantity):
             # Add and subtract operations require identical dimensions
             if op is np.add or op is np.subtract:
-                if ENABLE_DIMENSION_CHECK and not _dim_eq_fast(self.__dimension, other.__dimension):
+                if self.__dimension != other.__dimension:
                     raise ValueError(
                         f"无法与不同量纲的 Quantity 对象相加/相减：{self.dimension} 和 {other.dimension}。"
                     )
-                return Quantity(op(self.__value, other.__value), self.__dimension, copy=False)
+                new_value = op(self.__value, other.__value)
+                return _fast_quantity_init(new_value, self.__dimension)
             # Multiplication and division allow different dimensions
             elif op is np.multiply:
-                return Quantity(op(self.__value, other.__value),
-                               _dim_mul_fast(self.__dimension, other.__dimension), copy=False)
+                new_value = op(self.__value, other.__value)
+                return _fast_quantity_init(new_value, _dim_mul_fast(self.__dimension, other.__dimension))
             elif op is np.divide:
-                return Quantity(op(self.__value, other.__value),
-                               _dim_div_fast(self.__dimension, other.__dimension), copy=False)
+                new_value = op(self.__value, other.__value)
+                return _fast_quantity_init(new_value, _dim_div_fast(self.__dimension, other.__dimension))
         elif isinstance(other, (int, float, np.ndarray)):
             new_value = op(self.__value, other)
             if op is np.add or op is np.subtract:
-                if ENABLE_DIMENSION_CHECK and not _dim_eq_fast(self.__dimension, dimless):
+                if self.__dimension != dimless:
                     raise ValueError(f"Cannot add or subtract a scalar to a Quantity with dimensions: {self.dimension}")
-                return Quantity(new_value, self.__dimension, copy=False)
+                return _fast_quantity_init(new_value, self.__dimension)
             elif op is np.multiply or op is np.divide:
-                return Quantity(new_value, self.__dimension, copy=False)
+                return _fast_quantity_init(new_value, self.__dimension)
         else:
             raise TypeError("Operation is only supported between Quantity and scalar values.")
         # Ensure all code paths return a Quantity or raise an error
         raise TypeError("Unsupported operation or operand types for _apply_operation.")
 
     # 二元操作符重载
-    def __add__(self, other): return self._apply_operation(other, np.add)
-    def __sub__(self, other): return self._apply_operation(other, np.subtract)
-    def __mul__(self, other): return self._apply_operation(other, np.multiply)
-    def __truediv__(self, other): return self._apply_operation(other, np.divide)
+    def __add__(self, other):
+        return self._apply_operation(other, np.add)
+
+    def __sub__(self, other):
+        return self._apply_operation(other, np.subtract)
+
+    def __mul__(self, other):
+        return self._apply_operation(other, np.multiply)
+
+    def __truediv__(self, other):
+        return self._apply_operation(other, np.divide)
 
     # 左操作符重载
     def __radd__(self, other): return self.__add__(other)
-    def __rsub__(self, other): return Quantity(-self.value, self.dimension) + other
+
+    def __rsub__(self, other):
+        return Quantity(-self.value, self.dimension) + other
+
     def __rmul__(self, other): return self.__mul__(other)
+
     def __rtruediv__(self, other):
         if not isinstance(other, (int, float, np.ndarray)):
             raise TypeError("Division is only supported between scalars, arrays, and Quantity values.")
         return Quantity(other / self.value, dimless / self.dimension)
 
     # 一元负号
-    def __neg__(self) -> 'Quantity': return Quantity(-self.value, self.dimension)
+    def __neg__(self) -> 'Quantity':
+        return Quantity(-self.value, self.dimension)
 
     # 幂运算符重载
     def __pow__(self, power) -> 'Quantity':
@@ -168,73 +167,51 @@ class Quantity:
     def __iadd__(self, other)-> 'Quantity':
         """
         重载原地加法运算符（+=）。
-
-        参数:
-            other (Quantity 或 scalar): 另一个 Quantity 对象或标量。
-
-        返回:
-            self: 修改后的 Quantity 对象。
-        
-        异常:
-            TypeError: 如果 other 不是 Quantity 实例或标量。
-            ValueError: 如果量纲不匹配且启用了量纲检查。
         """
         if isinstance(other, Quantity):
             self._check_dimension(other)
-            self.__value += other.value  # 直接修改内部数组
-        elif isinstance(other, (int, float)) and self.dimension == dimless:
-            self.__value += other  # 直接修改内部数组
+            self.__value += other.value
+        elif isinstance(other, (int, float, np.ndarray)):
+            self.__value += other
         else:
-            raise TypeError("原地加法仅支持 Quantity 实例之间或无量纲 Quantity 与标量之间的相加。")
-        return self    
-    
+            raise TypeError("原地加法仅支持 Quantity 实例、标量或数组。")
+        return self
+
     def __isub__(self, other)-> 'Quantity':
         """
         重载原地减法运算符（-=）。
-
-        参数:
-            other (Quantity 或 scalar): 另一个 Quantity 对象或标量。
-
-        返回:
-            self: 修改后的 Quantity 对象。
-
-        异常:
-            TypeError: 如果 other 不是 Quantity 实例或标量。
-            ValueError: 如果量纲不匹配且启用了量纲检查。
         """
         if isinstance(other, Quantity):
             self._check_dimension(other)
-            self.value -= other.value
-        elif isinstance(other, (int, float)) and self.dimension == dimless:
-            self.value -= other
+            self.__value -= other.value
+        elif isinstance(other, (int, float, np.ndarray)):
+            self.__value -= other
         else:
-            raise TypeError("原地减法仅支持 Quantity 实例之间或无量纲 Quantity 与标量之间的相减。")
+            raise TypeError("原地减法仅支持 Quantity 实例、标量或数组。")
         return self
     
     def __imul__(self, other)-> 'Quantity':
         """
         重载原地乘法运算符（*=）。
-        *=乘法运算量纲会改变，因此仅支持无量纲的 Quantity 对象或标量。
         """
         if isinstance(other, Quantity) and other.dimension == dimless:
-            self.value *= other.value
-        elif isinstance(other, (int, float)):
-            self.value *= other
+            self.__value *= other.value
+        elif isinstance(other, (int, float, np.ndarray)):
+            self.__value *= other
         else:
-            raise TypeError("原地乘法仅支持 Quantity 对象或标量。")
+            raise TypeError("原地乘法仅支持 Quantity 对象、标量或数组。")
         return self
-    
+
     def __itruediv__(self, other)-> 'Quantity':
         """
         重载原地除法运算符（/=）。
-        /=除法运算量纲会改变，因此仅支持无量纲的 Quantity 对象或标量。
         """
         if isinstance(other, Quantity) and other.dimension == dimless:
-            self.value /= other.value
-        elif isinstance(other, (int, float)):
-            self.value /= other
+            self.__value /= other.value
+        elif isinstance(other, (int, float, np.ndarray)):
+            self.__value /= other
         else:
-            raise TypeError("原地除法仅支持 Quantity 对象或标量。")
+            raise TypeError("原地除法仅支持 Quantity 对象、标量或数组。")
         return self
 
     # 类的字符串表示
@@ -258,59 +235,30 @@ class Quantity:
     def __str__(self) -> str:
         return self.__repr__()
         
-    def __getitem__(self, key)-> 'Quantity':
+    def __getitem__(self, key):
         """
-        重载切片操作符，以支持返回带量纲的 Quantity 对象。
-
-        参数:
-            key (int, slice): 切片索引或整数索引。
-
-        返回:
-            Quantity: 切片后的 Quantity 对象。
+        重载切片操作符。
         """
-        # 使用 self.value[key] 获取切片后的数值部分
-        # sliced_value = self.__value[key]
-        # print(f"切片键: {key}, 切片后的值: {sliced_value}")
-        # 不在 __init__ 中重新创建数组，直接传入现有的 ndarray
-        sliced_value = self.value[key]  # 这是一个视图
-        return Quantity(sliced_value, self.dimension, copy=False)
+        sliced_value = self.__value[key]
+        return _fast_quantity_init(sliced_value, self.__dimension)
     
     def __setitem__(self, key, value):
         """
         重载赋值操作符，以支持直接修改数组部分的值。
-
-        参数:
-            key (int, slice): 要修改的索引或切片。
-            value (int, float, list, numpy.ndarray): 新的值，可以是标量或数组。
         """
-        # 这里检查传入值是否与当前存储的数据类型兼容
         if isinstance(value, Quantity):
-            # 如果传入的是 Quantity 对象，确保量纲相同
-            self._check_dimension(value)
-            self.__value[key] = value.value.copy()
-        elif isinstance(value, (int, float)) and self.dimension == dimless:
+            self.__value[key] = value.value
+        elif isinstance(value, (int, float)):
             self.__value[key] = float(value)
-        # elif isinstance(value, (list, tuple, np.ndarray)):
-        #     self.__value[key] = np.array(value, dtype=float)
+        elif isinstance(value, np.ndarray):
+            self.__value[key] = value
         else:
             raise TypeError("赋值值必须是 Quantity 实例、标量或数组。")
 
     
-    # def magnitude(self):
-    #     """
-    #     获取数值部分的拷贝。
-
-    #     返回:
-    #         numpy.ndarray: 数值数组的拷贝。
-    #     """
-    #     return self.value.copy()
-    
-    def copy(self)-> 'Quantity':
+    def copy(self):
         """
-        创建 Quantity 对象的副本。
-
-        返回:
-            Quantity: 副本对象。
+        创建副本。
         """
         return Quantity(self.value.copy(), self.dimension)
     
@@ -416,61 +364,64 @@ class Quantity:
             np.sin, np.cos, np.tan, np.arcsin, np.arccos, 
             np.arctan, np.arctan2, np.arcsinh, np.arccosh, np.arctanh,
             np.exp, np.log, np.sqrt, np.abs, np.sign,
-            # Add more element-wise functions as needed
         }
 
         aggregation_funcs = {
             np.sum, np.mean, np.min, np.max, np.prod, np.std, np.var,
-            # Add more aggregation functions as needed
         }
 
         reshaping_funcs = {
             np.squeeze, np.expand_dims, np.reshape,
-            # Add more reshaping functions as needed
         }
 
         if func in elementwise_funcs:
-            # Apply the function to the value
             result_value = func(*new_args, **new_kwargs)
-            # Handle dimension changes based on function semantics
-            # Example: trigonometric functions require dimensionless inputs
             trigonometric_funcs = {np.sin, np.cos, np.tan, np.arcsin, np.arccos, np.arctan, np.arctan2, np.arcsinh, np.arccosh, np.arctanh}
             if func in trigonometric_funcs:
                 quantity = args[0]
                 if quantity.dimension==dimless:
-                    # Result is dimensionless
                     return Quantity(result_value, dimless)
                 else:
                     raise ValueError(f"Cannot apply {func.__name__} to Quantity with dimension {quantity.dimension}")
             elif func==np.sqrt:
-                # Absolute value and sign functions preserve dimensions
                 return Quantity(result_value, args[0].dimension**0.5)
             else:
-                # For other element-wise functions, assume dimensions are preserved
-                # This may not be accurate for all functions and may need customization
                 return Quantity(result_value, args[0].dimension)
         
         elif func in aggregation_funcs:
-            # Apply the function to the value
             result_value = func(*new_args, **new_kwargs)
-            # Aggregation typically reduces dimensions, but depends on context
-            # Here, assume dimensions are preserved
             return Quantity(result_value, args[0].dimension)
         
         elif func in reshaping_funcs:
-            # Apply the function to the value
             result_value = func(*new_args, **new_kwargs)
-            # Reshaping doesn't change dimensions
             return Quantity(result_value, args[0].dimension)
         
         else:
-            # For other functions, attempt a generic application
             try:
                 result_value = func(*new_args, **new_kwargs)
                 if isinstance(result_value, np.ndarray) or isinstance(result_value, (int, float)):
-                    # Assume dimensions are preserved
                     return Quantity(result_value, args[0].dimension)
                 else:
                     return NotImplemented
             except:
                 return NotImplemented
+
+# === 内联快速路径辅助函数 ===
+def _dim_eq_fast(d1: 'Dimension', d2: 'Dimension') -> bool:
+    """快速量纲相等判断（直接比较底层 numpy 数组）"""
+    return np.array_equal(d1._value, d2._value)
+
+def _dim_mul_fast(d1: 'Dimension', d2: 'Dimension') -> 'Dimension':
+    """快速量纲乘法（直接操作底层数组，避免 __mul__ 方法分发）"""
+    return Dimension(d1._value + d2._value)
+
+def _dim_div_fast(d1: 'Dimension', d2: 'Dimension') -> 'Dimension':
+    """快速量纲除法"""
+    return Dimension(d1._value - d2._value)
+
+def _fast_quantity_init(value: np.ndarray, dimension: 'Dimension') -> 'Quantity':
+    """快速创建 Quantity 对象（跳过 isinstance 检查和拷贝）。"""
+    q = object.__new__(Quantity)
+    q._Quantity__value = value
+    q._Quantity__dimension = dimension
+    return q

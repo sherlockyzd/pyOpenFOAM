@@ -47,9 +47,12 @@ def plotResidualHistory(Region):
     plt.title('Residual History')
     plt.legend()
     plt.grid(True)
-    plt.draw()
-    # if interactive:
-    plt.pause(0.001)  # 让图形界面刷新，但不阻塞
+    plt.tight_layout()
+    # 保存到算例目录
+    save_path = os.path.join(Region.caseDirectoryPath, 'residualHistory.png')
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    print(f"残差历史图已保存: {save_path}")
+    plt.close('all')
 
 # 将方法绑定到你的 solver/region 对象，即可直接调用：
 # solver.plotResidualHistory()

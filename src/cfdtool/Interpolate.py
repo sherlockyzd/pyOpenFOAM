@@ -1,10 +1,10 @@
 import numpy as np
 import cfdtool.IO as io
 import cfdtool.Math as mth
-from cfdtool.quantities import Quantity as Q_
+from cfdtool.backend import be
 
 def cfdInterpolateFromElementsToFaces(Region,theInterpolationScheme,field,*args):
-    return Q_(cfdInterpolateFromElementsToFaces_tool(Region,theInterpolationScheme,field.value,*args),field.dimension)
+    return cfdInterpolateFromElementsToFaces_tool(Region,theInterpolationScheme,field,*args)
 
 def cfdInterpolateFromElementsToFaces_tool(Region,theInterpolationScheme,field,*args):
     '''
@@ -28,26 +28,23 @@ def cfdInterpolateFromElementsToFaces_tool(Region,theInterpolationScheme,field,*
 
     numberOfInteriorFaces = Region.mesh.numberOfInteriorFaces
     numberOfFaces = Region.mesh.numberOfFaces
-    phi_f=np.zeros((numberOfFaces,theNumberOfComponents))
+    phi_f=be.zeros((numberOfFaces,theNumberOfComponents))
 
     # 插值内部面
-    phi_f[:numberOfInteriorFaces,:]=cfdInterpolateFromElementsToInteriorFaces_tool(Region,theInterpolationScheme,field[:Region.mesh.numberOfElements])
+    phi_f = be.set_at(phi_f, (slice(None, numberOfInteriorFaces), slice(None)), cfdInterpolateFromElementsToInteriorFaces_tool(Region,theInterpolationScheme,field[:Region.mesh.numberOfElements]))
     ''' **边界面插值**：
     - 对于边界面（从 `numberOfInteriorFaces` 到 `numberOfFaces`），将单元格中心的值直接赋给 `phi_f`，因为边界面没有邻居单元格。
     '''
     boundaryFaceOwners = Region.mesh.owners[numberOfInteriorFaces:]
     neighbourFaceOwners= Region.mesh.owners_b
     # 处理边界面
-    phi_f[numberOfInteriorFaces:numberOfFaces, :] = 0.5*(field[boundaryFaceOwners, :]+field[neighbourFaceOwners, :])# TODO check theInterpolation
+    phi_f = be.set_at(phi_f, (slice(numberOfInteriorFaces, numberOfFaces), slice(None)), 0.5*(field[boundaryFaceOwners, :]+field[neighbourFaceOwners, :]))# TODO check theInterpolation
     
     return phi_f
 
 
-def  cfdInterpolateFromElementsToInteriorFaces(Region,theInterpolationScheme,field, *args):
-    if args:
-        return Q_(cfdInterpolateFromElementsToInteriorFaces_tool(Region,theInterpolationScheme,field.value, args[0].value),field.dimension)
-    else:
-        return Q_(cfdInterpolateFromElementsToInteriorFaces_tool(Region,theInterpolationScheme,field.value),field.dimension)
+def cfdInterpolateFromElementsToInteriorFaces(Region,theInterpolationScheme,field, *args):
+    return cfdInterpolateFromElementsToInteriorFaces_tool(Region,theInterpolationScheme,field, *args)
 
 def  cfdInterpolateFromElementsToInteriorFaces_tool(Region,theInterpolationScheme,field, *args):
     '''
@@ -74,35 +71,31 @@ def  cfdInterpolateFromElementsToInteriorFaces_tool(Region,theInterpolationSchem
     
     #interpolation factor p.160 in Moukalled
     g_f=Region.mesh.interiorFaceWeights
-    phi_f=np.zeros((numberOfInteriorFaces,theNumberOfComponents))
     
     if theInterpolationScheme == 'linear':
-        # Calculate face-based interpolation weights
-        # w = dN / (dO + dN), where dO is distance from owner to face, dN is distance from face to neighbor
-        # phi_f = w * phi_O + (1 - w) * phi_N
-        phi_f[:numberOfInteriorFaces, :] = g_f[:, None] * field[owners, :] + (1 - g_f)[:, None] * field[neighbours, :]
+        # 使用空列表 + concatenate 避免 np.zeros 预分配（结果直接是连续内存）
+        g_f_2d = g_f[:, None]
+        g_f_compl = 1.0 - g_f_2d
+        phi_f = g_f_2d * field[owners, :] + g_f_compl * field[neighbours, :]
 
     elif theInterpolationScheme == 'harmonic mean':
         # 谐和平均插值： phi_f = 1 / ((1 - w)/phi_O + w/phi_N)
-        phi_f[:numberOfInteriorFaces,:] = 1 / ((1 - g_f)[:, None] / field[owners, :] + g_f[:, None] / field[neighbours, :])
-        # for iComponent in range(theNumberOfComponents):
-        #     phi_f[0:numberOfInteriorFaces,iComponent]=1/((1-g_f)/field[owners][:,iComponent]+g_f/field[neighbours][:,iComponent])
+        g_f_2d = g_f[:, None]
+        phi_f = 1.0 / ((1.0 - g_f_2d) / field[owners, :] + g_f_2d / field[neighbours, :])
 
     elif theInterpolationScheme == 'vanLeerV':
         vol = Region.mesh.elementVolumes
-        phi_f[:numberOfInteriorFaces,:] = ((vol[owners] + vol[neighbours]) * field[owners, :] * field[neighbours, :]) / \
-                (vol[neighbours] * field[owners, :] + vol[owners] * field[neighbours, :])
-        # for iComponent in range(theNumberOfComponents):
-        #     phi_f[0:numberOfInteriorFaces,iComponent] = (vol[owners]+vol[neighbours])*field[owners,iComponent]*field[neighbours,iComponent]/(vol[neighbours]*field[owners,iComponent]+vol[owners]*field[neighbours,iComponent])
+        phi_O = field[owners, :]
+        phi_N = field[neighbours, :]
+        phi_f = ((vol[owners, None] + vol[neighbours, None]) * phi_O * phi_N) / \
+                (vol[neighbours, None] * phi_O + vol[owners, None] * phi_N)
     
     elif theInterpolationScheme == 'linearUpwind':
         if args:
             mdot_f=args[0]
             pos = (mdot_f > 0).astype(int)[:numberOfInteriorFaces,:]
             # 插值： phi_f = pos * phi_O + (1 - pos) * phi_N
-            phi_f[:numberOfInteriorFaces,:] = pos * field[owners, :] + (1 - pos) * field[neighbours, :]
-            # for iComponent in range(theNumberOfComponents):
-            #     phi_f[0:numberOfInteriorFaces,iComponent] = field[owners,iComponent]*pos + field[neighbours,iComponent]*(1 - pos)
+            phi_f = pos * field[owners, :] + (1 - pos) * field[neighbours, :]
         else:
             io.cfdError("linearUpwind is implemented in interpolateFromElementsToFaces Error!!!")
     else:
@@ -110,10 +103,7 @@ def  cfdInterpolateFromElementsToInteriorFaces_tool(Region,theInterpolationSchem
     return phi_f
 
 def cfdInterpolateGradientsFromElementsToInteriorFaces(Region,gradPhi,scheme,*args):
-    if args:
-        return Q_(cfdInterpolateGradientsFromElementsToInteriorFaces_tool(Region,gradPhi.value,scheme,args[0].value),gradPhi.dimension)
-    else:
-        return Q_(cfdInterpolateGradientsFromElementsToInteriorFaces_tool(Region,gradPhi.value,scheme),gradPhi.dimension)
+    return cfdInterpolateGradientsFromElementsToInteriorFaces_tool(Region,gradPhi,scheme,*args)
     
 def cfdInterpolateGradientsFromElementsToInteriorFaces_tool(Region,gradPhi,scheme,*args):
     '''
@@ -138,34 +128,18 @@ def cfdInterpolateGradientsFromElementsToInteriorFaces_tool(Region,gradPhi,schem
     # face weights
     g_f=Region.mesh.interiorFaceWeights
     # vector formed between owner (C) and neighbour (f) elements
-    CF = Region.mesh.interiorFaceCF.value
+    CF = Region.mesh.interiorFaceCF
     # vector of ones
     # face gradient matrix
-    grad_f= np.zeros((numberOfInteriorFaces, 3),dtype='float')
+    grad_f= be.zeros((numberOfInteriorFaces, 3))
     
     if scheme == 'linear' or scheme == 'Gauss linear':
-        # for i in range(theNumberOfComponents):
-        """ 
-        Example of what is going one in one of the lines below:
-            
-        a = ones - g_f                              <--- returns a 1D (:,) array (1 - faceWeight)
-        b = gradPhi[self.neighbours_f][:,0,i]       <--- grabs only rows in self.neighbours, in column 0, for component 'i'
-        c = g_f*self.gradPhi[self.owners_f][:,0,i]  <--- multiplies faceWeight by owners in column 0, for component 'i'
-        
-        grad_f[:,0,i] = a*self.b + c                <--- fills (:) column '0' for component 'i' with the result of self.a*self.b + self.c 
-        
-        In words, what is going is:
-            
-            gradient of phi at face = (1 - faceWeight for cell)*neighbouring element's gradient + faceWeight*owner element's gradient
-            
-            If the faceWeight (g_f) of the owner cell is high, then its gradient contributes more to the face's gradient than the neighbour cell.
-        """
         # 线性插值： grad_f = (1 - w) * gradPhi_N + w * gradPhi_O
-        grad_f[:numberOfInteriorFaces,:]=(1-g_f)[:,None]*gradPhi[neighbours_f,:]+g_f[:,None]*gradPhi[owners_f,:]
+        grad_f = be.set_at(grad_f, (slice(None, numberOfInteriorFaces), slice(None)), (1-g_f)[:,None]*gradPhi[neighbours_f,:]+g_f[:,None]*gradPhi[owners_f,:])
 
     elif scheme == 'Gauss linear corrected':
         #书籍《The Finite Volume Method in Computational Fluid Dynamics》Page 289页
-        grad_f[:numberOfInteriorFaces,:]=(1-g_f)[:,None]*gradPhi[neighbours_f,:]+g_f[:,None]*gradPhi[owners_f,:]
+        grad_f = be.set_at(grad_f, (slice(None, numberOfInteriorFaces), slice(None)), (1-g_f)[:,None]*gradPhi[neighbours_f,:]+g_f[:,None]*gradPhi[owners_f,:])
         # ScfdUrface-normal gradient
         dcfdMag = mth.cfdMag(CF)
         e_CF = mth.cfdUnit(CF)
@@ -181,7 +155,7 @@ def cfdInterpolateGradientsFromElementsToInteriorFaces_tool(Region,gradPhi,schem
         local_avg_grad = mth.cfdDot(grad_f, e_CF)[:, None] * e_CF
 
         # Corrected gradient
-        grad_f += (local_grad- local_avg_grad)
+        grad_f = grad_f + (local_grad- local_avg_grad)
     
     elif scheme == 'Gauss upwind':
         #not yet implemented, but it will have to be
@@ -193,7 +167,7 @@ def cfdInterpolateGradientsFromElementsToInteriorFaces_tool(Region,gradPhi,schem
         
         # 根据流量方向选择插值方向
         pos = (mdot_f > 0).astype(int)[:numberOfInteriorFaces,:]
-        grad_f[:numberOfInteriorFaces,:] = pos*local_grad_f[owners_f,:] + (1-pos)*local_grad_f[neighbours_f,:]
+        grad_f = be.set_at(grad_f, (slice(None, numberOfInteriorFaces), slice(None)), pos*local_grad_f[owners_f,:] + (1-pos)*local_grad_f[neighbours_f,:])
     else:
         io.cfdError(f"{scheme} is not yet implemented, but it will have to be")
 

@@ -44,9 +44,10 @@ def cfdSolveEquation(Region,theEquationName, iComponent):
             device_info = "GPU" if use_gpu else "CPU"
             # print(f"PETSc求解完成({device_info}): {petsc_solver_type} + {petsc_preconditioner}")  # 高频，已静默
         else:
-            io.cfdError("PETSc不可用，回退到PCG求解器")
-            # preconditioner = Region.dictionaries.fvSolution['solvers'][theEquationName].get('preconditioner', 'ILU') 
-            # [initRes, finalRes] = cfdSolvePCG(Region.coefficients, maxIter, tolerance, relTol, preconditioner)
+            import warnings
+            warnings.warn("PETSc不可用，回退到PCG求解器")
+            preconditioner = Region.dictionaries.fvSolution['solvers'][theEquationName].get('preconditioner', 'ILU') 
+            [initRes, finalRes] = cfdSolvePCG(Region.coefficients, maxIter, tolerance, relTol, preconditioner)
     else:
         # print('  s not defined', solver)
         io.cfdError(solver+' solver has not beeen defined!!!')
