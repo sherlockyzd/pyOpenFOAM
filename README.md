@@ -4,10 +4,11 @@
 
 <p align="center">
   <a href="https://github.com/sherlockyzd/pyOpenFOAM/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"/></a>
-  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.8+-green.svg" alt="Python"/></a>
-  <a href="https://numpy.org/"><img src="https://img.shields.io/badge/NumPy-Backend-013243?logo=numpy" alt="NumPy"/></a>
-  <a href="https://github.com/google/jax"><img src="https://img.shields.io/badge/JAX-Backend-FF6F00?logo=jax" alt="JAX"/></a>
-  <a href="https://github.com/sherlockyzd/pyOpenFOAM"><img src="https://img.shields.io/badge/CFD-FVM_Solver-00B4D8" alt="CFD"/></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.8+-3776AB?logo=python&logoColor=white" alt="Python"/></a>
+  <a href="https://numpy.org/"><img src="https://img.shields.io/badge/NumPy-013243?logo=numpy&logoColor=white" alt="NumPy"/></a>
+  <a href="https://github.com/google/jax"><img src="https://img.shields.io/badge/JAX-FF6F00?logo=jax&logoColor=white" alt="JAX"/></a>
+  <a href="https://scipy.org/"><img src="https://img.shields.io/badge/SciPy-8CAAE6?logo=scipy&logoColor=white" alt="SciPy"/></a>
+  <a href="https://matplotlib.org/"><img src="https://img.shields.io/badge/Matplotlib-11557C?logo=matplotlib&logoColor=white" alt="Matplotlib"/></a>
 </p>
 
 <p align="center">
@@ -18,7 +19,9 @@
 
 ## pyOpenFOAM
 
-**基于有限体积方法（FVM）的 Python 计算流体动力学求解器**，实现了完整的网格拓扑处理、方程组装、线性求解、边界条件设置和结果可视化。兼容 OpenFOAM 网格格式，支持 NumPy / JAX 双后端。
+**基于有限体积方法（FVM）的 Python 计算流体动力学求解器**，实现了完整的网格拓扑处理、方程组装、线性求解、边界条件设置和结果可视化。兼容 OpenFOAM 网格格式，支持 NumPy / JAX 双后端架构。
+
+> 离散格式参考 *The Finite Volume Method in Computational Fluid Dynamics* (Moukalled et al., Springer)
 
 ### 主要特性
 
@@ -121,7 +124,7 @@ pyOpenFOAM/
 ### 参考与致谢
 
 - Moukalled, F., Mangani, L., & Darwish, M. *The Finite Volume Method in Computational Fluid Dynamics: An Advanced Introduction with OpenFOAM and Matlab*. Springer.
-- OpenFOAM® — 开源 CFD 工具箱
+- [OpenFOAM](https://www.openfoam.com/) — 开源 CFD 工具箱
 
 ### 许可证
 
@@ -134,15 +137,16 @@ pyOpenFOAM/
 </p>
 
 ---
----
+
+## English Version
 
 <p align="center">
   <b>English</b> | <a href="#pyopenfoam">中文</a>
 </p>
 
-## English Version
-
 **pyOpenFOAM** is a Python-based Computational Fluid Dynamics (CFD) solver implementing the Finite Volume Method (FVM). It provides a complete toolkit for mesh topology, equation assembly, linear solving, boundary conditions, and result visualization. Compatible with OpenFOAM mesh formats, supporting NumPy / JAX dual backends.
+
+> Discretization schemes based on *The Finite Volume Method in Computational Fluid Dynamics* (Moukalled et al., Springer)
 
 ### Key Features
 
@@ -163,6 +167,48 @@ conda create --name pyOF python=3.10 numpy matplotlib scipy
 conda activate pyOF
 ```
 
+```bash
+# Lid-driven cavity flow (structured mesh)
+cd example/cavity && python pyFVMScript.py
+
+# 90-degree pipe elbow flow (unstructured mesh)
+cd example/elbow && python pyFVMScript.py
+
+# Heat transfer in flange
+cd example/flange && python pyFVMScript.py
+```
+
+### Basic Usage
+
+```python
+from pyFVM.Region import Region
+
+case = Region("/path/to/case")
+case.RunCase()
+# residualHistory.png is saved in the case directory
+```
+
+### Backend Switching
+
+Edit `src/config.py`:
+
+```python
+cfdBackend = 'numpy'   # Default, fastest for production
+# cfdBackend = 'jax'   # JAX backend (requires: pip install jax jaxlib)
+```
+
+| Backend | Performance | Best For |
+|:---:|:---:|---|
+| **NumPy** | cavity ~6s | Production runs, daily development |
+| **JAX** | 2-3x slower (no JIT) | Auto-diff, GPU parallelism, JIT compilation |
+
+### Supported Physics
+
+- Momentum equations (Navier-Stokes)
+- Continuity equation (mass conservation)
+- Energy equation (heat transfer)
+- Pressure-velocity coupling (SIMPLE / PISO)
+
 ### Example Cases
 
 | Case | Type | Mesh | Description |
@@ -174,3 +220,9 @@ conda activate pyOF
 ### License
 
 [MIT License](LICENSE)
+
+---
+
+<p align="center">
+  If you find this useful, give it a <a href="https://github.com/sherlockyzd/pyOpenFOAM"><b>⭐ Star</b></a>!
+</p>
